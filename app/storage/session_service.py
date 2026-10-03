@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 import uuid
@@ -359,7 +360,7 @@ class SessionService:
     def _percentile(values: list[float], percentile: float) -> float:
         if not values:
             return 0.0
-        index = min(len(values) - 1, max(0, int((len(values) - 1) * percentile)))
+        index = min(len(values) - 1, max(0, math.ceil(len(values) * percentile) - 1))
         return values[index]
 
     def get_session_usage(self, user_id: str, session_id: str, current_turn: TokenUsage) -> SessionUsage:

@@ -1,0 +1,17 @@
+[
+  {"id": "chat-1", "message": "解释一下什么是 ToolRegistry", "expected_intent": "chat"},
+  {"id": "chat-2", "message": "你好，请介绍一下这个助手", "expected_intent": "chat"},
+  {"id": "chat-3", "message": "如何设计一个稳定的 API", "expected_intent": "chat"},
+  {"id": "chat-4", "message": "帮我解释这段 Python 代码", "expected_intent": "chat"},
+  {"id": "chat-5", "message": "总结一下上下文窗口的作用", "expected_intent": "chat"},
+  {"id": "data-1", "message": "查询今天各产线的产量", "expected_intent": "data_operation"},
+  {"id": "data-2", "message": "读取本周的订单数量", "expected_intent": "data_operation"},
+  {"id": "data-3", "message": "修改这条业务记录", "expected_intent": "data_operation"},
+  {"id": "data-4", "message": "删除一条测试记录", "expected_intent": "data_operation"},
+  {"id": "data-5", "message": "创建一个新的业务条目", "expected_intent": "data_operation"},
+  {"id": "sql-1", "message": "生成查询本月订单金额的 SQL", "expected_intent": "nl2sql"},
+  {"id": "sql-2", "message": "帮我改写这段 SQL", "expected_intent": "nl2sql"},
+  {"id": "sql-3", "message": "解释这条 SQL 的执行逻辑", "expected_intent": "nl2sql"},
+  {"id": "sql-4", "message": "展示查询用户数量的 SQL", "expected_intent": "nl2sql"},
+  {"id": "sql-5", "message": "把这个查询转换成 SQL", "expected_intent": "nl2sql"}
+]
