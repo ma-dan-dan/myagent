@@ -1,0 +1,44 @@
+[
+  {
+    "table_name": "production_output",
+    "description": "生产产量按日期和产线记录的结构元数据",
+    "columns": [
+      {
+        "column_name": "output_date",
+        "data_type": "date",
+        "description": "产量记录日期"
+      },
+      {
+        "column_name": "line_code",
+        "data_type": "string",
+        "description": "产线编码"
+      },
+      {
+        "column_name": "output_quantity",
+        "data_type": "decimal",
+        "description": "产量数量"
+      }
+    ]
+  },
+  {
+    "table_name": "sales_order",
+    "description": "销售订单的业务字段结构元数据",
+    "columns": [
+      {
+        "column_name": "order_date",
+        "data_type": "date",
+        "description": "订单日期"
+      },
+      {
+        "column_name": "customer_code",
+        "data_type": "string",
+        "description": "客户编码"
+      },
+      {
+        "column_name": "order_amount",
+        "data_type": "decimal",
+        "description": "订单金额"
+      }
+    ]
+  }
+]

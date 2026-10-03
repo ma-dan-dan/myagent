@@ -1,0 +1,303 @@
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+import uuid
+from pathlib import Path
+
+from app.memory.models import SessionUsage, SummaryRecord, TokenUsage
+from app.schemas.chat import StoredMessage
+
+
+_SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+
+
+def _validate_identifier(value: str, field_name: str) -> str:
+    if not _SAFE_IDENTIFIER.fullmatch(value):
+        raise ValueError(f"invalid {field_name}")
+    return value
+
+
+class SessionService:
+    """Stores bounded chat history and always scopes reads by user and session."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.db_path)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _initialize(self) -> None:
+        with self._connect() as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, session_id)
+                );
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY (user_id, session_id)
+                        REFERENCES sessions(user_id, session_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_messages_scope
+                    ON messages(user_id, session_id, id);
+                CREATE TABLE IF NOT EXISTS session_summaries (
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    summarized_through_message_id INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, session_id),
+                    FOREIGN KEY (user_id, session_id)
+                        REFERENCES sessions(user_id, session_id)
+                );
+                CREATE TABLE IF NOT EXISTS token_usages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    operation TEXT NOT NULL CHECK(operation IN ('chat', 'summary', 'memory')),
+                    model TEXT NOT NULL,
+                    requests INTEGER NOT NULL DEFAULT 0,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    estimated_context_tokens INTEGER NOT NULL DEFAULT 0,
+                    context_window INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id, session_id)
+                        REFERENCES sessions(user_id, session_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_token_usages_scope
+                    ON token_usages(user_id, session_id, id);
+                """
+            )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(token_usages)").fetchall()}
+            if "requests" not in columns:
+                connection.execute("ALTER TABLE token_usages ADD COLUMN requests INTEGER NOT NULL DEFAULT 0")
+
+    def create_session(self, user_id: str) -> str:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = uuid.uuid4().hex
+        self.ensure_session(user_id, session_id)
+        return session_id
+
+    def ensure_session(self, user_id: str, session_id: str) -> None:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO sessions(user_id, session_id, created_at) VALUES (?, ?, datetime('now'))",
+                (user_id, session_id),
+            )
+
+    def append_message(
+        self,
+        user_id: str,
+        session_id: str,
+        role: str,
+        content: str,
+        metadata: dict | None = None,
+    ) -> int:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        message = StoredMessage(role=role, content=content, metadata=metadata or {})
+        self.ensure_session(user_id, session_id)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO messages(user_id, session_id, role, content, created_at, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    session_id,
+                    message.role,
+                    message.content,
+                    message.created_at.isoformat(),
+                    json.dumps(message.metadata, ensure_ascii=False),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def get_messages(self, user_id: str, session_id: str, limit: int = 20) -> list[StoredMessage]:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        if limit < 1:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, role, content, created_at, metadata_json
+                FROM messages
+                WHERE user_id = ? AND session_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (user_id, session_id, limit),
+            ).fetchall()
+        return [self._stored_message(row) for row in reversed(rows)]
+
+    def get_messages_after_id(self, user_id: str, session_id: str, message_id: int) -> list[StoredMessage]:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, role, content, created_at, metadata_json
+                FROM messages
+                WHERE user_id = ? AND session_id = ? AND id > ?
+                ORDER BY id ASC
+                """,
+                (user_id, session_id, message_id),
+            ).fetchall()
+        return [self._stored_message(row) for row in rows]
+
+    def get_all_messages(self, user_id: str, session_id: str) -> list[StoredMessage]:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, role, content, created_at, metadata_json
+                FROM messages
+                WHERE user_id = ? AND session_id = ?
+                ORDER BY id ASC
+                """,
+                (user_id, session_id),
+            ).fetchall()
+        return [self._stored_message(row) for row in rows]
+
+    @staticmethod
+    def _stored_message(row: sqlite3.Row) -> StoredMessage:
+        return StoredMessage(
+            id=row["id"],
+            role=row["role"],
+            content=row["content"],
+            created_at=row["created_at"],
+            metadata=json.loads(row["metadata_json"]),
+        )
+
+    def save_summary(self, summary: SummaryRecord) -> None:
+        user_id = _validate_identifier(summary.user_id, "user_id")
+        session_id = _validate_identifier(summary.session_id, "session_id")
+        self.ensure_session(user_id, session_id)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO session_summaries(
+                    user_id, session_id, summary, summarized_through_message_id, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, session_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    summarized_through_message_id = excluded.summarized_through_message_id,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    session_id,
+                    summary.summary,
+                    summary.summarized_through_message_id,
+                    summary.updated_at.isoformat(),
+                ),
+            )
+
+    def get_summary(self, user_id: str, session_id: str) -> SummaryRecord | None:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT user_id, session_id, summary, summarized_through_message_id, updated_at
+                FROM session_summaries
+                WHERE user_id = ? AND session_id = ?
+                """,
+                (user_id, session_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return SummaryRecord(
+            user_id=row["user_id"],
+            session_id=row["session_id"],
+            summary=row["summary"],
+            summarized_through_message_id=row["summarized_through_message_id"],
+            updated_at=row["updated_at"],
+        )
+
+    def record_usage(
+        self,
+        user_id: str,
+        session_id: str,
+        operation: str,
+        model: str,
+        usage: TokenUsage,
+    ) -> None:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        if operation not in {"chat", "summary", "memory"}:
+            raise ValueError("invalid usage operation")
+        self.ensure_session(user_id, session_id)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO token_usages(
+                    user_id, session_id, operation, model, requests, input_tokens, output_tokens,
+                    total_tokens, estimated_context_tokens, context_window, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """,
+                (
+                    user_id,
+                    session_id,
+                    operation,
+                    model,
+                    usage.requests,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.total_tokens,
+                    usage.estimated_context_tokens,
+                    usage.context_window,
+                ),
+            )
+
+    def get_session_usage(self, user_id: str, session_id: str, current_turn: TokenUsage) -> SessionUsage:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    COALESCE(SUM(requests), 0) AS requests,
+                    COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                    COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(estimated_context_tokens), 0) AS estimated_context_tokens,
+                    COALESCE(MAX(context_window), 0) AS context_window
+                FROM token_usages
+                WHERE user_id = ? AND session_id = ?
+                """,
+                (user_id, session_id),
+            ).fetchone()
+        return SessionUsage(
+            current_turn=current_turn,
+            session_total=TokenUsage(
+                requests=row["requests"],
+                input_tokens=row["input_tokens"],
+                output_tokens=row["output_tokens"],
+                total_tokens=row["total_tokens"],
+                estimated_context_tokens=row["estimated_context_tokens"],
+                context_window=row["context_window"],
+            ),
+        )

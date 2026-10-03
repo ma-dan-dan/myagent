@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minimal Agentic Chat V1</title>
+  <style>
+    body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
+    #messages { min-height: 18rem; border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; white-space: pre-wrap; }
+    .user { color: #164e63; margin: .7rem 0; }
+    .assistant { color: #166534; margin: .7rem 0; }
+    form { display: flex; gap: .5rem; }
+    input, button { font: inherit; padding: .6rem; }
+    input { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>Agentic Chat</h1>
+  <div id="messages" aria-live="polite"></div>
+  <form id="chat-form">
+    <input id="message" required maxlength="4000" placeholder="输入消息">
+    <button type="submit">发送</button>
+  </form>
+  <script>
+    const form = document.querySelector("#chat-form");
+    const input = document.querySelector("#message");
+    const messages = document.querySelector("#messages");
+    const userStorageKey = "minimal-agentic-chat:user-id";
+    const sessionStorageKey = "minimal-agentic-chat:session-id";
+
+    function getOrCreateAnonymousUserId() {
+      const savedUserId = localStorage.getItem(userStorageKey);
+      if (savedUserId) return savedUserId;
+      const generatedUserId = globalThis.crypto?.randomUUID?.()
+        || `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      localStorage.setItem(userStorageKey, generatedUserId);
+      return generatedUserId;
+    }
+
+    const userId = getOrCreateAnonymousUserId();
+    let sessionId = localStorage.getItem(sessionStorageKey);
+
+    function addMessage(role, text) {
+      const line = document.createElement("div");
+      line.className = role;
+      line.textContent = `${role === "user" ? "你" : "助手"}: ${text}`;
+      messages.appendChild(line);
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      addMessage("user", text);
+      input.value = "";
+      try {
+        const response = await fetch("/api/v1/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId, session_id: sessionId, message: text })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "请求失败");
+        sessionId = payload.session_id;
+        localStorage.setItem(sessionStorageKey, sessionId);
+        addMessage("assistant", payload.message);
+      } catch (error) {
+        addMessage("assistant", `请求失败：${error.message}`);
+      }
+    });
+  </script>
+</body>
+</html>
