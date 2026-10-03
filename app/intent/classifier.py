@@ -12,3 +12,7 @@ class IntentClassifier(Protocol):
 
 class IntentClassificationError(RuntimeError):
     """Raised when intent classification cannot produce a usable result."""
+
+
+class InvalidIntentDecision(IntentClassificationError):
+    """Raised when a classifier response cannot be validated as an intent result."""
