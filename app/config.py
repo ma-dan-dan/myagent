@@ -7,3 +7,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "chat.sqlite3"
 DEFAULT_CATALOG_PATH = PROJECT_ROOT / "data" / "schema_catalog.json"
 DEFAULT_WEB_PATH = PROJECT_ROOT / "web" / "index.html"
+DEFAULT_INTENT_PROVIDER = "llm"
+INTENT_PROVIDER_ENV = "INTENT_PROVIDER"
+INTENT_MIN_CONFIDENCE = 0.70

@@ -3,6 +3,8 @@ from pydantic import ValidationError
 
 from app.agent.adapter import LLMResponse
 from app.intent.classifier import IntentClassificationError
+from app.intent.factory import IntentClassifierFactory
+from app.intent import jev_classifier
 from app.intent.llm_classifier import LLMIntentClassifier
 from app.intent.models import DataAction, IntentDecision, IntentName
 
@@ -64,3 +66,52 @@ def test_llm_classifier_rejects_invalid_json():
 
     with pytest.raises(IntentClassificationError):
         LLMIntentClassifier(llm).classify("你好")
+
+
+def test_jev_factory_requires_typesafe_api_key(monkeypatch):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setenv("INTENT_PROVIDER", "jev")
+
+    with pytest.raises(IntentClassificationError, match="TYPESAFE_API_KEY"):
+        IntentClassifierFactory.from_env(StubLLM(LLMResponse.message("{}")))
+
+
+def test_jev_classifier_maps_mocked_official_response(monkeypatch):
+    calls = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs))
+
+        def system_one(self, **kwargs):
+            calls.append(("system_one", kwargs))
+            return type(
+                "Response",
+                (),
+                {
+                    "answers": {
+                        "intent": type("Answer", (), {"choice": "data_operation", "confidence": 0.92})(),
+                        "data_action": type("Answer", (), {"choice": "read", "confidence": 0.88})(),
+                    }
+                },
+            )()
+
+    monkeypatch.setattr(jev_classifier, "TypeSafeClient", FakeClient)
+    classifier = jev_classifier.JevIntentClassifier("test-key")
+
+    result = classifier.classify("查今天产量")
+
+    assert result.intent is IntentName.DATA_OPERATION
+    assert result.data_action.value == "read"
+    assert result.provider == "jev"
+    assert result.model == "typesafe/jev-1.13"
+    assert result.usage.total_tokens == 0
+    assert calls[1][1]["model"] == "typesafe/jev-1.13"
+    assert set(calls[1][1]["questions"]) == {"intent", "data_action"}
+
+
+def test_intent_factory_rejects_unknown_provider(monkeypatch):
+    monkeypatch.setenv("INTENT_PROVIDER", "unknown")
+
+    with pytest.raises(IntentClassificationError, match="fake, jev, llm"):
+        IntentClassifierFactory.from_env(StubLLM(LLMResponse.message("{}")))
