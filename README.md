@@ -12,6 +12,35 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 使用 LiteLLM 接入 OpenAI、DeepSeek、Qwen 三类模型，并保留可注入的 Fake LLM 测试方式。
 - 使用滑动窗口、会话摘要、Token 估算和 `MEMORY.md` 管理会话上下文与长期项目记忆。
 
+## V4 意图识别
+
+- 在现有聊天入口前增加 `chat`、`data_operation`、`nl2sql` 三类意图识别。
+- `data_operation` 携带 `read`、`create`、`update`、`delete` 或 `unknown` 预留动作字段；当前数据类意图只返回稳定占位响应。
+- 通过 `INTENT_PROVIDER` 切换 `fake`、`llm` 和 `jev` 分类器，三者统一输出 `IntentDecision`。
+- `llm` 分类器复用现有 LLMAdapter，要求 JSON 输出并经过 Pydantic 校验；低置信度或非法分类结果降级为普通聊天。
+- `jev` 分类器使用官方 `typesafe-sdk`，固定模型为 `typesafe/jev-1.13`，只从 `TYPESAFE_API_KEY` 读取密钥。
+- 每次分类记录 provider、模型、置信度、延迟和 Token 用量，并提供 `GET /api/v1/intent-metrics` 指标接口。
+
+PowerShell 配置示例：
+
+```powershell
+$env:INTENT_PROVIDER = "fake"
+$env:INTENT_PROVIDER = "llm"
+$env:INTENT_PROVIDER = "jev"
+$env:TYPESAFE_API_KEY = "<your-key>"
+```
+
+普通 LLM 分类器复用已有的 `LLM_PROVIDER`、Provider API Key 和模型配置；Jev 分类器只读取官方 `TYPESAFE_API_KEY`。
+
+可使用固定评测样本运行分类指标汇总：
+
+```powershell
+$env:INTENT_PROVIDER = "fake"
+.\.venv\Scripts\python.exe -m app.evaluation.intent_benchmark
+```
+
+Jev 的自动化测试使用 mock 客户端，不访问在线服务；实际在线调用需要自行配置 `TYPESAFE_API_KEY`。
+
 ## 架构概览
 
 ```text
@@ -89,5 +118,6 @@ web/           简单前端页面
 - `docs/v1_minimal-agentic-chat-design.md`：最小 Agentic Chat 设计。
 - `docs/v2_llm-adapter-multi-provider.md`：多模型厂商适配。
 - `docs/v3_context-token-memory-management.md`：上下文、Token 与长期记忆。
+- `docs/v4_intent-recognition.md`：意图识别、分类器切换与评测。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。
