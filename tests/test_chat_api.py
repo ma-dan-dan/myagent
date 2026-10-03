@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.agent.adapter import LLMResponse
+from app.intent.fake_classifier import FakeIntentClassifier
 from app.main import create_app
 from app.memory.models import ContextPolicy, TokenUsage
 
@@ -39,6 +40,7 @@ def make_client(tmp_path, fake, context_policy=None):
             db_path=tmp_path / "chat.sqlite3",
             catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
             llm_adapter=fake,
+            intent_classifier=FakeIntentClassifier(),
             workspace_root=tmp_path,
             context_policy=context_policy,
         )

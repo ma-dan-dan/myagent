@@ -10,7 +10,15 @@ from app.agent.chat_agent import ChatAgent
 from app.agent.llm_factory import LLMAdapterFactory
 from app.agent.tool_registry import ToolRegistry
 from app.api.chat import router as chat_router
-from app.config import DEFAULT_CATALOG_PATH, DEFAULT_DB_PATH, DEFAULT_WEB_PATH
+from app.config import (
+    DEFAULT_CATALOG_PATH,
+    DEFAULT_DB_PATH,
+    DEFAULT_WEB_PATH,
+    INTENT_MIN_CONFIDENCE,
+)
+from app.intent.classifier import IntentClassificationError, IntentClassifier
+from app.intent.factory import IntentClassifierFactory, UnavailableIntentClassifier
+from app.intent.router import IntentRouter
 from app.memory.context_manager import ContextManager
 from app.memory.long_term_memory import LongTermMemoryStore
 from app.memory.project_context import ProjectContextLoader
@@ -32,6 +40,7 @@ def create_app(
     workspace_root: str | Path | None = None,
     context_policy: ContextPolicy | None = None,
     token_manager: TokenManager | None = None,
+    intent_classifier: IntentClassifier | None = None,
 ) -> FastAPI:
 
     # 1、 创建 FastAPI 应用实例，并确定工作空间的路径，如果没有提供 workspace_root，则使用当前文件的父目录作为默认路径。
@@ -66,9 +75,16 @@ def create_app(
         policy,
     )
 
+    if intent_classifier is None:
+        try:
+            intent_classifier = IntentClassifierFactory.from_env(agent.llm)
+        except IntentClassificationError as exc:
+            intent_classifier = UnavailableIntentClassifier(str(exc))
+    intent_router = IntentRouter(intent_classifier, min_confidence=INTENT_MIN_CONFIDENCE)
+
 
     # 5、将 ChatService 实例和 web_path 添加到 FastAPI 应用的状态中，以便在应用的其他部分访问。然后将 chat_router 包含到应用中，以处理与聊天相关的 API 路由。最后，定义一个根路径的 GET 请求处理函数 index，用于返回 web_path 指定的 HTML 文件作为响应。
-    app.state.chat_service = ChatService(session_service, agent, context, memory)
+    app.state.chat_service = ChatService(session_service, agent, context, memory, intent_router)
     app.state.web_path = Path(web_path)
     app.include_router(chat_router)
 

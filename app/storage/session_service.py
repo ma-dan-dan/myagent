@@ -6,6 +6,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+from app.intent.models import IntentDecision
 from app.memory.models import SessionUsage, SummaryRecord, TokenUsage
 from app.schemas.chat import StoredMessage
 
@@ -83,6 +84,26 @@ class SessionService:
                 );
                 CREATE INDEX IF NOT EXISTS idx_token_usages_scope
                     ON token_usages(user_id, session_id, id);
+                CREATE TABLE IF NOT EXISTS intent_classifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    intent TEXT NOT NULL,
+                    data_action TEXT NULL,
+                    confidence REAL NOT NULL,
+                    latency_ms REAL NOT NULL,
+                    input_tokens INTEGER NOT NULL,
+                    output_tokens INTEGER NOT NULL,
+                    total_tokens INTEGER NOT NULL,
+                    fallback_reason TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id, session_id)
+                        REFERENCES sessions(user_id, session_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_intent_classifications_scope
+                    ON intent_classifications(user_id, session_id, id);
                 """
             )
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(token_usages)").fetchall()}
@@ -271,6 +292,75 @@ class SessionService:
                     usage.context_window,
                 ),
             )
+
+    def record_intent_classification(
+        self,
+        user_id: str,
+        session_id: str,
+        decision: IntentDecision,
+    ) -> None:
+        user_id = _validate_identifier(user_id, "user_id")
+        session_id = _validate_identifier(session_id, "session_id")
+        self.ensure_session(user_id, session_id)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO intent_classifications(
+                    user_id, session_id, provider, model, intent, data_action,
+                    confidence, latency_ms, input_tokens, output_tokens, total_tokens,
+                    fallback_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """,
+                (
+                    user_id,
+                    session_id,
+                    decision.provider,
+                    decision.model,
+                    decision.intent.value,
+                    decision.data_action.value if decision.data_action is not None else None,
+                    decision.confidence,
+                    decision.latency_ms,
+                    decision.usage.input_tokens,
+                    decision.usage.output_tokens,
+                    decision.usage.total_tokens,
+                    decision.fallback_reason,
+                ),
+            )
+
+    def get_intent_metrics(self, user_id: str, provider: str | None = None) -> dict:
+        user_id = _validate_identifier(user_id, "user_id")
+        query = """
+            SELECT intent, latency_ms, input_tokens, output_tokens
+            FROM intent_classifications
+            WHERE user_id = ?
+        """
+        params: list[str] = [user_id]
+        if provider is not None:
+            query += " AND provider = ?"
+            params.append(provider)
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        latencies = sorted(float(row["latency_ms"]) for row in rows)
+        intent_counts: dict[str, int] = {}
+        for row in rows:
+            intent_counts[row["intent"]] = intent_counts.get(row["intent"], 0) + 1
+        return {
+            "provider": provider,
+            "request_count": len(rows),
+            "intent_counts": intent_counts,
+            "avg_latency_ms": sum(latencies) / len(latencies) if latencies else 0.0,
+            "p50_latency_ms": self._percentile(latencies, 0.50),
+            "p95_latency_ms": self._percentile(latencies, 0.95),
+            "total_input_tokens": sum(int(row["input_tokens"]) for row in rows),
+            "total_output_tokens": sum(int(row["output_tokens"]) for row in rows),
+        }
+
+    @staticmethod
+    def _percentile(values: list[float], percentile: float) -> float:
+        if not values:
+            return 0.0
+        index = min(len(values) - 1, max(0, int((len(values) - 1) * percentile)))
+        return values[index]
 
     def get_session_usage(self, user_id: str, session_id: str, current_turn: TokenUsage) -> SessionUsage:
         user_id = _validate_identifier(user_id, "user_id")

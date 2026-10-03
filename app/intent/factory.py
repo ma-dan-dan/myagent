@@ -10,6 +10,14 @@ from app.intent.jev_classifier import JevIntentClassifier
 from app.intent.llm_classifier import LLMIntentClassifier
 
 
+class UnavailableIntentClassifier:
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def classify(self, message: str):
+        raise IntentClassificationError(self.message)
+
+
 class IntentClassifierFactory:
     ALLOWED_PROVIDERS = ("fake", "jev", "llm")
 

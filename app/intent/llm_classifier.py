@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.agent.adapter import LLMAdapter, LLMResponse, LLMServiceUnavailable
+from app.agent.adapter import LLMAdapter, LLMConfigurationError, LLMResponse, LLMServiceUnavailable
 from app.intent.classifier import IntentClassificationError, InvalidIntentDecision
 from app.intent.models import IntentDecision
 from app.memory.models import TokenUsage
@@ -34,6 +34,8 @@ class LLMIntentClassifier:
         started = time.perf_counter()
         try:
             response = LLMResponse.model_validate(self.llm.complete(messages, tools=[]))
+        except LLMConfigurationError as exc:
+            raise IntentClassificationError(str(exc)) from exc
         except LLMServiceUnavailable as exc:
             raise IntentClassificationError("普通 LLM 意图分类服务不可用。") from exc
         except Exception as exc:

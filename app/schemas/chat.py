@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.memory.models import SessionUsage
+from app.intent.models import IntentDecision
 
 
 def _trimmed(value: str) -> str:
@@ -82,6 +83,20 @@ class ChatResponse(BaseModel):
     message: str
     tool_events: list[ToolEvent] = Field(default_factory=list)
     usage: SessionUsage = Field(default_factory=SessionUsage)
+    intent_decision: IntentDecision
+
+
+class IntentMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str | None = None
+    request_count: int = Field(ge=0)
+    intent_counts: dict[str, int]
+    avg_latency_ms: float = Field(ge=0)
+    p50_latency_ms: float = Field(ge=0)
+    p95_latency_ms: float = Field(ge=0)
+    total_input_tokens: int = Field(ge=0)
+    total_output_tokens: int = Field(ge=0)
 
 
 class StoredMessage(BaseModel):
