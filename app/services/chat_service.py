@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent.chat_agent import ChatAgent
-from app.intent.models import IntentName
+from app.intent.models import IntentDecision, IntentName, IntentRouteResult
 from app.intent.router import IntentRouter
 from app.memory.context_manager import ContextManager
 from app.memory.long_term_memory import LongTermMemoryStore
@@ -30,12 +30,18 @@ class ChatService:
         self.intent_router = intent_router
 
     def chat(self, user_id: str, session_id: str | None, message: str) -> ChatResponse:
-        intent_decision = self.intent_router.route(message)
+        route_result = self.intent_router.route(message)
         active_session_id = session_id or self.session_service.create_session(user_id)
         self.session_service.ensure_session(user_id, active_session_id)
-        self.session_service.record_intent_classification(user_id, active_session_id, intent_decision)
-        if intent_decision.intent is not IntentName.CHAT:
-            return self._placeholder_response(user_id, active_session_id, message, intent_decision)
+        self.session_service.record_intent_classification(
+            user_id,
+            active_session_id,
+            route_result.decision,
+            route_result.routed_intent,
+            route_result.fallback_reason,
+        )
+        if route_result.routed_intent is not IntentName.CHAT:
+            return self._placeholder_response(user_id, active_session_id, message, route_result)
 
         prepared = self.context_manager.prepare(user_id, active_session_id, message)
         self.session_service.append_message(user_id, active_session_id, "user", message)
@@ -86,7 +92,9 @@ class ChatService:
             message=result.message,
             tool_events=result.tool_events,
             usage=usage,
-            intent_decision=intent_decision,
+            intent_decision=route_result.decision,
+            routed_intent=route_result.routed_intent,
+            fallback_reason=route_result.fallback_reason,
         )
 
     def intent_metrics(self, user_id: str, provider: str | None = None) -> IntentMetrics:
@@ -97,9 +105,9 @@ class ChatService:
         user_id: str,
         session_id: str,
         message: str,
-        intent_decision,
+        route_result: IntentRouteResult,
     ) -> ChatResponse:
-        if intent_decision.intent is IntentName.DATA_OPERATION:
+        if route_result.routed_intent is IntentName.DATA_OPERATION:
             assistant_message = "已识别为数据查询意图，当前仅完成意图路由测试。"
         else:
             assistant_message = "已识别为 NL2SQL 意图，当前仅完成意图路由测试。"
@@ -110,5 +118,7 @@ class ChatService:
             session_id=session_id,
             message=assistant_message,
             usage=usage,
-            intent_decision=intent_decision,
+            intent_decision=route_result.decision,
+            routed_intent=route_result.routed_intent,
+            fallback_reason=route_result.fallback_reason,
         )

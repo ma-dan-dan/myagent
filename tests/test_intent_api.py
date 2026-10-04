@@ -72,8 +72,25 @@ def test_low_confidence_fallback_uses_existing_agent_path(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["message"] == "普通回答"
-    assert response.json()["intent_decision"]["intent"] == "chat"
-    assert response.json()["intent_decision"]["fallback_reason"] == "low_confidence"
+    assert response.json()["intent_decision"]["intent"] == "nl2sql"
+    assert response.json()["intent_decision"]["provider"] == "fake"
+    assert response.json()["routed_intent"] == "chat"
+    assert response.json()["fallback_reason"] == "low_confidence"
+
+
+def test_low_confidence_is_counted_under_its_source_provider(tmp_path):
+    classifier = FakeIntentClassifier.for_result("ambiguous", "nl2sql", None, 0.2)
+    client = make_client(tmp_path, classifier, [LLMResponse.message("普通回答")])
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "ambiguous"})
+    metrics = client.get("/api/v1/intent-metrics", params={"user_id": "alice", "provider": "fake"})
+
+    assert response.status_code == 200
+    assert response.json()["intent_decision"]["intent"] == "nl2sql"
+    assert response.json()["routed_intent"] == "chat"
+    assert metrics.json()["request_count"] == 1
+    assert metrics.json()["classified_intent_counts"] == {"nl2sql": 1}
+    assert metrics.json()["routed_intent_counts"] == {"chat": 1}
 
 
 def test_intent_classification_is_persisted_and_metrics_are_aggregated(tmp_path):
@@ -86,12 +103,13 @@ def test_intent_classification_is_persisted_and_metrics_are_aggregated(tmp_path)
     assert response.status_code == 200
     assert metrics.status_code == 200
     assert metrics.json()["request_count"] == 1
-    assert metrics.json()["intent_counts"] == {"data_operation": 1}
+    assert metrics.json()["classified_intent_counts"] == {"data_operation": 1}
+    assert metrics.json()["routed_intent_counts"] == {"data_operation": 1}
     with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
         row = connection.execute(
-            "SELECT provider, model, intent, data_action FROM intent_classifications"
+            "SELECT provider, model, intent, routed_intent, data_action FROM intent_classifications"
         ).fetchone()
-    assert row == ("fake", "fake-intent-v1", "data_operation", "read")
+    assert row == ("fake", "fake-intent-v1", "data_operation", "data_operation", "read")
 
 
 def test_intent_configuration_error_returns_503_without_persisting_messages(tmp_path):

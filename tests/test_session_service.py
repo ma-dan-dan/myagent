@@ -1,3 +1,5 @@
+import sqlite3
+
 from app.storage.session_service import SessionService
 from app.memory.models import SummaryRecord, TokenUsage
 
@@ -67,3 +69,55 @@ def test_session_service_records_turn_and_session_usage(tmp_path):
     assert session_usage.session_total.input_tokens == 60
     assert session_usage.session_total.output_tokens == 20
     assert session_usage.session_total.total_tokens == 80
+
+
+def test_session_service_migrates_legacy_intent_classifications_table(tmp_path):
+    db_path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE sessions (
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, session_id)
+            );
+            CREATE TABLE intent_classifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                intent TEXT NOT NULL,
+                data_action TEXT NULL,
+                confidence REAL NOT NULL,
+                latency_ms REAL NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                fallback_reason TEXT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO sessions VALUES ('alice', 'session', datetime('now'));
+            INSERT INTO intent_classifications(
+                user_id, session_id, provider, model, intent, data_action,
+                confidence, latency_ms, input_tokens, output_tokens, total_tokens,
+                fallback_reason, created_at
+            ) VALUES ('alice', 'session', 'jev', 'typesafe/jev-1.13', 'nl2sql', NULL,
+                      0.9, 12.0, 3, 2, 5, NULL, datetime('now'));
+            """
+        )
+
+    service = SessionService(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(intent_classifications)")}
+        routed_intent = connection.execute(
+            "SELECT routed_intent FROM intent_classifications WHERE user_id = 'alice'"
+        ).fetchone()[0]
+    metrics = service.get_intent_metrics("alice", "jev")
+
+    assert "routed_intent" in columns
+    assert routed_intent == "nl2sql"
+    assert metrics["classified_intent_counts"] == {"nl2sql": 1}
+    assert metrics["routed_intent_counts"] == {"nl2sql": 1}
