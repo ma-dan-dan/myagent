@@ -8,6 +8,7 @@ from typing import Any
 
 from app.agent.llm_factory import LLMAdapterFactory
 from app.intent.factory import IntentClassifierFactory
+from app.intent.fake_classifier import FakeIntentClassifier
 from app.intent.models import IntentDecision
 
 
@@ -33,13 +34,24 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def run_benchmark(classifier, cases: list[dict[str, Any]]) -> dict[str, Any]:
+    fixture_mode = isinstance(classifier, FakeIntentClassifier)
     results: list[dict[str, Any]] = []
     provider = "unknown"
     model = "unknown"
     for case in cases:
-        started = time.perf_counter()
-        decision: IntentDecision = classifier.classify(case["message"])
-        elapsed_ms = (time.perf_counter() - started) * 1000
+        if fixture_mode:
+            decision = IntentDecision(
+                intent=case["expected_intent"],
+                confidence=1.0,
+                provider=FakeIntentClassifier.provider,
+                model=FakeIntentClassifier.model,
+                latency_ms=0,
+            )
+            elapsed_ms = 0.0
+        else:
+            started = time.perf_counter()
+            decision = classifier.classify(case["message"])
+            elapsed_ms = (time.perf_counter() - started) * 1000
         provider = decision.provider
         model = decision.model
         results.append(
@@ -56,6 +68,8 @@ def run_benchmark(classifier, cases: list[dict[str, Any]]) -> dict[str, Any]:
         "provider": provider,
         "model": model,
         "sample_count": len(results),
+        "benchmark_mode": "fixture" if fixture_mode else "model",
+        "comparable_to_real_models": not fixture_mode,
         **summarize_results(results),
         "results": results,
     }

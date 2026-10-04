@@ -1,4 +1,6 @@
-from app.evaluation.intent_benchmark import summarize_results
+from app.evaluation.intent_benchmark import load_cases, run_benchmark, summarize_results
+from app.intent.fake_classifier import FakeIntentClassifier
+from app.intent.models import IntentDecision, IntentName
 
 
 def test_benchmark_calculates_accuracy_and_latency_percentiles():
@@ -15,19 +17,30 @@ def test_benchmark_calculates_accuracy_and_latency_percentiles():
     assert report["total_input_tokens"] == 3
 
 
-def test_fake_benchmark_returns_one_result_per_case(monkeypatch):
-    from app.evaluation.intent_benchmark import run_benchmark
-    from app.intent.fake_classifier import FakeIntentClassifier
+def test_fake_benchmark_is_marked_as_fixture_not_model_comparison():
+    report = run_benchmark(FakeIntentClassifier(), load_cases())
 
-    monkeypatch.setenv("INTENT_PROVIDER", "fake")
+    assert report["sample_count"] == 15
+    assert report["benchmark_mode"] == "fixture"
+    assert report["comparable_to_real_models"] is False
+    assert report["accuracy"] == 1.0
+
+
+def test_model_benchmark_is_marked_comparable():
+    class StubClassifier:
+        def classify(self, message):
+            return IntentDecision(
+                intent=IntentName.CHAT,
+                confidence=0.9,
+                provider="llm",
+                model="test-model",
+                latency_ms=1,
+            )
+
     report = run_benchmark(
-        FakeIntentClassifier(),
-        [
-            {"id": "chat-1", "message": "你好", "expected_intent": "chat"},
-            {"id": "sql-1", "message": "生成 SQL", "expected_intent": "nl2sql"},
-        ],
+        StubClassifier(),
+        [{"id": "chat-1", "message": "你好", "expected_intent": "chat"}],
     )
 
-    assert report["sample_count"] == 2
-    assert len(report["results"]) == 2
-    assert report["results"][0]["actual"] == "chat"
+    assert report["benchmark_mode"] == "model"
+    assert report["comparable_to_real_models"] is True
