@@ -11,6 +11,8 @@ from app.memory.models import TokenUsage
 from app.schemas.chat import ChatResponse, IntentMetrics, ToolEvent
 from app.storage.session_service import SessionService
 from app.rag.service import SchemaLinkingService
+from app.nl2sql.executor import SQLUnsafeQueryError
+from app.nl2sql.graph import NL2SQLGraphService
 
 
 class ChatService:
@@ -24,6 +26,7 @@ class ChatService:
         long_term_memory: LongTermMemoryStore,
         intent_router: IntentRouter,
         schema_linking_service: SchemaLinkingService | None = None,
+        nl2sql_graph_service: NL2SQLGraphService | None = None,
     ) -> None:
         self.session_service = session_service
         self.agent = agent
@@ -31,6 +34,7 @@ class ChatService:
         self.long_term_memory = long_term_memory
         self.intent_router = intent_router
         self.schema_linking_service = schema_linking_service
+        self.nl2sql_graph_service = nl2sql_graph_service
 
     def chat(self, user_id: str, session_id: str | None, message: str) -> ChatResponse:
         route_result = self.intent_router.route(message)
@@ -45,6 +49,8 @@ class ChatService:
         )
         if route_result.routed_intent is IntentName.DATA_OPERATION and route_result.decision.data_action and route_result.decision.data_action.value == "read":
             return self._read_response(user_id, active_session_id, message, route_result)
+        if route_result.routed_intent is IntentName.NL2SQL:
+            return self._nl2sql_response(user_id, active_session_id, message, route_result)
         if route_result.routed_intent is not IntentName.CHAT:
             return self._placeholder_response(user_id, active_session_id, message, route_result)
 
@@ -113,6 +119,33 @@ class ChatService:
         result = self.agent.run(prepared.messages, tools=[])
         self.session_service.append_message(user_id, session_id, "assistant", result.message)
         return self._finish_success(user_id, session_id, prepared, result, route_result)
+
+    def _nl2sql_response(self, user_id: str, session_id: str, message: str, route_result: IntentRouteResult) -> ChatResponse:
+        if self.nl2sql_graph_service is None:
+            raise RuntimeError("NL2SQL 图服务未配置。")
+        result = self.nl2sql_graph_service.invoke(user_id, session_id, message)
+        if result.validation_error and result.status != "ok":
+            self.session_service.append_message(user_id, session_id, "user", message)
+            self.session_service.append_message(user_id, session_id, "assistant", "生成的 SQL 未通过安全校验。")
+            raise SQLUnsafeQueryError("生成的 SQL 未通过安全校验。")
+        assistant_message = result.final_message or "NL2SQL 查询未能完成。"
+        self.session_service.append_message(user_id, session_id, "user", message)
+        self.session_service.append_message(user_id, session_id, "assistant", assistant_message)
+        model = str(getattr(self.agent.llm, "model", "unknown") or "unknown")
+        usage = result.usage.model_copy(update={"context_window": self.context_manager.token_manager.context_window})
+        self.session_service.record_usage(user_id, session_id, "chat", model, usage)
+        sql = result.validation.normalized_sql if result.validation and result.validation.normalized_sql else (result.sql_draft.sql if result.sql_draft else None)
+        return ChatResponse(
+            session_id=session_id,
+            message=assistant_message,
+            usage=self.session_service.get_session_usage(user_id, session_id, usage),
+            intent_decision=route_result.decision,
+            routed_intent=route_result.routed_intent,
+            fallback_reason=route_result.fallback_reason,
+            nl2sql_status=result.status,
+            sql=sql,
+            query_result=result.query_result,
+        )
 
     def _stable_response(self, user_id: str, session_id: str, message: str, route_result: IntentRouteResult, assistant_message: str) -> ChatResponse:
         self.session_service.append_message(user_id, session_id, "user", message)

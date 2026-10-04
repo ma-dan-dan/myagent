@@ -10,6 +10,9 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 通过 `ToolRegistry` 管理工具白名单；当前已接入 `search_schema` 工具。
 - 对 `data_operation/read` 使用 DDL 与脱敏 SampleValue 的双路向量召回；默认 Catalog 只建立 DDL 索引，RAG 只提供 Schema 证据，不执行 SQL。
 - SampleValue 仅接受外部明确提供的样例；敏感字段和值、低相似度候选会被过滤，歧义候选返回确认提示，Schema 证据无法安全放入上下文预算时接口返回 `413`。
+- `nl2sql` 使用 LangGraph 编排 `SchemaLinking → GenSQL → ValidateSQL → Execute → Reflection → Output`；GenSQL 和 Reflection 均复用现有 `LLMAdapter.complete(messages, tools=[])`。
+- NL2SQL 仅允许白名单表/列上的单条只读 `SELECT/WITH`，通过 SQLGlot AST 校验并受行数、列数、超时和反思次数限制；默认未配置业务数据库时返回明确 `503`，不会使用聊天会话 SQLite。
+- NL2SQL 自动化测试使用 Fake LLM、Fake Executor 或临时 SQLite 文件，不调用真实模型、Embedding 或业务数据库。
 - 使用 LiteLLM 接入 OpenAI、DeepSeek、Qwen 三类模型，并保留可注入的 Fake LLM 测试方式。
 - 使用滑动窗口、会话摘要、Token 估算和 `MEMORY.md` 管理会话上下文与长期项目记忆。
 
@@ -43,9 +46,9 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 
 ## 架构概览
 
-![MyAgent 当前架构与 V6 DDL 和 SampleValue RAG 链路](docs/images/myagent-architecture.svg)
+![MyAgent 当前架构与 V7 RAG 和 LangGraph NL2SQL 链路](docs/images/myagent-architecture.svg)
 
-图中全部为当前已接入链路。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；低分、歧义和预算不足走稳定的 empty/确认提示/`413` 分支。
+图中全部为当前已接入链路。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；`nl2sql` 进入独立 LangGraph，只能通过校验后的 SQLExecutor 访问专用业务库。
 
 ## 配置位置
 
@@ -62,6 +65,7 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 | `INTENT_PROVIDER` | 意图分类器 Provider，默认 `llm`，可选 `fake`、`llm`、`jev`。 |
 | `INTENT_LLM_PROVIDER` | 意图模型 Provider；仅 `INTENT_PROVIDER=llm` 时生效，未配置时跟随 `LLM_PROVIDER`。 |
 | `TYPESAFE_API_KEY` | Jev 意图分类器 API Key，仅 `INTENT_PROVIDER=jev` 时使用。 |
+| `NL2SQL_DATABASE_URL` | 可选的专用只读 SQLite 业务数据库路径；未配置时 NL2SQL 返回 `503`。 |
 
 主聊天和意图模型的默认模型均在 `app/config.py` 的 `LLM_PROVIDER_CONFIGS` 中维护：OpenAI 为 `gpt-4o-mini`，DeepSeek 为 `deepseek-flash`，Qwen 为 `deepseek-v4.1-flash`。各 Provider 的固定 Base URL 也在该文件中维护：DeepSeek 为 `https://api.deepseek.com`，Qwen 为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，OpenAI 使用 LiteLLM 默认地址。
 RAG 固定使用 Qwen `text-embedding-v3` 与同一个 `QWEN_API_KEY`；DDL 和 SampleValue 分别索引到本地 LanceDB，融合后的少量证据会计入上下文预算后再交给主聊天模型，不进入 Agent Tool Loop。
@@ -135,5 +139,7 @@ web/           简单前端页面
 - `docs/v4_intent-recognition.md`：意图识别、分类器切换与评测。
 - `docs/v4_intent-recognition-fix.md`：原始分类结果、实际路由结果与指标归因修复。
 - `docs/v5_intent-routing-llm-adapter-plan.md`：独立意图路由模型 Adapter。
+- `docs/v6_rag-ddl-samplevalue-plan.md`：DDL + SampleValue RAG 设计。
+- `docs/v7_langgraph-nl2sql-plan.md`：LangGraph 只读 NL2SQL 工作流设计与实施计划。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。

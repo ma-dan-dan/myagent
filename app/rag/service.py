@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.rag.context_packer import ContextPacker
 from app.rag.indexer import RagSchemaRecord, SchemaIndexer
 from app.rag.retriever import SchemaRetriever
 from app.rag.context_packer import RagContextBudgetExceeded
+from app.rag.models import SchemaCandidate
 
 
 class SchemaLinkingResult(BaseModel):
     status: str
     context: str = ""
+    candidates: list[SchemaCandidate] = Field(default_factory=list)
 
 
 class SchemaLinkingService:
@@ -32,4 +34,4 @@ class SchemaLinkingService:
         context = self.packer.pack(result.candidates, budget=1200)
         if not context:
             raise RagContextBudgetExceeded("Schema evidence could not be packed safely.")
-        return SchemaLinkingResult(status="ok", context=context)
+        return SchemaLinkingResult(status="ok", context=context, candidates=result.candidates)

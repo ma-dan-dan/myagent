@@ -254,14 +254,29 @@ def test_data_read_returns_503_when_qwen_embedding_key_is_missing(tmp_path, monk
     assert "QWEN_API_KEY" in response.json()["detail"]
 
 
-def test_nl2sql_returns_stable_placeholder(tmp_path):
+def test_nl2sql_empty_schema_returns_stable_follow_up_without_model_call(tmp_path):
+    class EmptySchemaLinkingService:
+        def search(self, message):
+            return SchemaLinkingResult(status="empty")
+
     classifier = FakeIntentClassifier.for_result("生成 SQL", "nl2sql", None, 1.0)
-    client = make_client(tmp_path, classifier)
+    chat_llm = FakeLLM([])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=chat_llm,
+            intent_classifier=classifier,
+            schema_linking_service=EmptySchemaLinkingService(),
+            workspace_root=tmp_path,
+        )
+    )
 
     response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
 
     assert response.status_code == 200
-    assert "NL2SQL 意图" in response.json()["message"]
+    assert "未找到匹配的 Schema" in response.json()["message"]
+    assert chat_llm.calls == []
 
 
 def test_low_confidence_fallback_uses_existing_agent_path(tmp_path):

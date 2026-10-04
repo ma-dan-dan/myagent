@@ -8,7 +8,18 @@ from app.config import (
     get_intent_llm_runtime_config,
     get_intent_runtime_config,
     get_llm_runtime_config,
+    get_nl2sql_runtime_config,
 )
+
+
+def test_nl2sql_runtime_config_reads_only_its_dedicated_database_variable(monkeypatch):
+    monkeypatch.setenv("NL2SQL_DATABASE_URL", "C:/data/business.sqlite3")
+
+    config = get_nl2sql_runtime_config()
+
+    assert config.database_url == "C:/data/business.sqlite3"
+    assert config.dialect == "sqlite"
+    assert config.max_attempts == 3
 
 
 def test_get_llm_runtime_config_reads_selected_qwen_provider(monkeypatch):

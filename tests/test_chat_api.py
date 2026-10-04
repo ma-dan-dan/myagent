@@ -8,6 +8,7 @@ from app.agent.adapter import LLMResponse
 from app.intent.fake_classifier import FakeIntentClassifier
 from app.main import create_app
 from app.memory.models import ContextPolicy, TokenUsage
+from app.nl2sql.models import NL2SQLState, QueryResult, SQLDraft, SQLValidationResult
 
 
 class FakeLLM:
@@ -245,3 +246,105 @@ def test_api_returns_413_when_minimum_prompt_exceeds_hard_budget(tmp_path):
     assert not (tmp_path / ".myagent" / "memory" / "chat" / "MEMORY.md").exists()
     with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
         assert connection.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+
+
+def test_api_routes_nl2sql_to_injected_graph_without_agent_loop(tmp_path):
+    class FakeGraph:
+        def __init__(self):
+            self.calls = []
+
+        def invoke(self, user_id, session_id, user_message):
+            self.calls.append((user_id, session_id, user_message))
+            return NL2SQLState(
+                user_id=user_id,
+                session_id=session_id,
+                user_message=user_message,
+                status="ok",
+                final_message="查询完成，共返回 1 行结果。",
+                sql_draft=SQLDraft(status="ok", sql="SELECT output_quantity FROM production_output", tables=["production_output"], parameters={}, explanation="查询产量"),
+                validation=SQLValidationResult(ok=True, normalized_sql="SELECT output_quantity FROM production_output LIMIT 100"),
+                query_result=QueryResult(columns=["output_quantity"], rows=[[10]], row_count=1, truncated=False),
+                usage=TokenUsage(requests=2, input_tokens=10, output_tokens=4, total_tokens=14),
+            )
+
+    graph = FakeGraph()
+    fake = FakeLLM([])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=fake,
+            intent_classifier=FakeIntentClassifier.for_result("生成 SQL", "nl2sql", None, 1.0),
+            nl2sql_graph_service=graph,
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
+
+    assert response.status_code == 200
+    assert graph.calls
+    assert fake.calls == []
+    assert response.json()["nl2sql_status"] == "ok"
+    assert response.json()["sql"] == "SELECT output_quantity FROM production_output LIMIT 100"
+    assert response.json()["query_result"]["rows"] == [[10]]
+
+
+def test_api_returns_503_when_nl2sql_business_database_is_not_configured(tmp_path):
+    class FakeSchemaLinkingService:
+        def search(self, message):
+            from app.rag.models import SchemaCandidate
+            from app.rag.service import SchemaLinkingResult
+
+            return SchemaLinkingResult(
+                status="ok",
+                context="<schema_evidence>CREATE TABLE production_output (output_quantity INTEGER);</schema_evidence>",
+                candidates=[SchemaCandidate(table_id="production_output", table_name="production_output", ddl="CREATE TABLE production_output (output_quantity INTEGER);", score=1.0)],
+            )
+
+    fake = FakeLLM([LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}')])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=fake,
+            intent_classifier=FakeIntentClassifier.for_result("生成 SQL", "nl2sql", None, 1.0),
+            schema_linking_service=FakeSchemaLinkingService(),
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
+
+    assert response.status_code == 503
+    assert "业务数据库未配置" in response.json()["detail"]
+
+
+def test_api_returns_422_and_persists_stable_message_for_unsafe_nl2sql(tmp_path):
+    class UnsafeGraph:
+        def invoke(self, user_id, session_id, user_message):
+            return NL2SQLState(
+                user_id=user_id,
+                session_id=session_id,
+                user_message=user_message,
+                status="failed",
+                final_message="SQL 校验失败。",
+                validation_error="SQL 引用了未授权的字段。",
+            )
+
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=FakeLLM([]),
+            intent_classifier=FakeIntentClassifier.for_result("生成 SQL", "nl2sql", None, 1.0),
+            nl2sql_graph_service=UnsafeGraph(),
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
+
+    assert response.status_code == 422
+    with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
+        assert [row[0] for row in connection.execute("SELECT role FROM messages ORDER BY id")] == ["user", "assistant"]

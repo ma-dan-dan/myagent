@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.memory.models import SessionUsage
 from app.intent.models import IntentDecision, IntentName
+from app.nl2sql.models import QueryResult
 
 
 def _trimmed(value: str) -> str:
@@ -86,6 +87,9 @@ class ChatResponse(BaseModel):
     intent_decision: IntentDecision
     routed_intent: IntentName
     fallback_reason: str | None = Field(default=None, max_length=300)
+    nl2sql_status: str | None = None
+    sql: str | None = None
+    query_result: QueryResult | None = None
 
 
 class IntentMetrics(BaseModel):

@@ -7,6 +7,7 @@ from app.intent.classifier import IntentClassificationError
 from app.memory.context_manager import ContextBudgetExceeded
 from app.rag.embedding import RagServiceUnavailable
 from app.rag.context_packer import RagContextBudgetExceeded
+from app.nl2sql.executor import SQLExecutorUnavailable, SQLUnsafeQueryError
 from app.schemas.chat import ChatRequest, ChatResponse, IntentMetrics
 from app.services.chat_service import ChatService
 
@@ -27,6 +28,10 @@ def chat(request: ChatRequest, http_request: Request) -> ChatResponse:
         raise HTTPException(status_code=413, detail="当前问题过长，无法安全构造上下文，请缩短当前问题后重试。") from exc
     except RagContextBudgetExceeded as exc:
         raise HTTPException(status_code=413, detail="Schema 证据过长，无法安全构造上下文，请缩短问题后重试。") from exc
+    except SQLUnsafeQueryError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SQLExecutorUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except LLMServiceUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RagServiceUnavailable as exc:
