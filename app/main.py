@@ -41,6 +41,7 @@ def create_app(
     context_policy: ContextPolicy | None = None,
     token_manager: TokenManager | None = None,
     intent_classifier: IntentClassifier | None = None,
+    intent_llm_adapter: LLMAdapter | None = None,
 ) -> FastAPI:
 
     # 1、 创建 FastAPI 应用实例，并确定工作空间的路径，如果没有提供 workspace_root，则使用当前文件的父目录作为默认路径。
@@ -77,7 +78,7 @@ def create_app(
 
     if intent_classifier is None:
         try:
-            intent_classifier = IntentClassifierFactory.from_env(agent.llm)
+            intent_classifier = IntentClassifierFactory.from_env(intent_llm_adapter)
         except IntentClassificationError as exc:
             intent_classifier = UnavailableIntentClassifier(str(exc))
     intent_router = IntentRouter(intent_classifier, min_confidence=INTENT_MIN_CONFIDENCE)

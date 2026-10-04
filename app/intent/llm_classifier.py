@@ -47,7 +47,7 @@ class LLMIntentClassifier:
             payload = json.loads(response.content)
             decision = IntentDecision(
                 **payload,
-                provider="llm",
+                provider=str(getattr(self.llm, "provider", "llm") or "llm"),
                 model=str(getattr(self.llm, "model", "unknown") or "unknown"),
                 latency_ms=latency_ms,
                 usage=response.usage or TokenUsage(),

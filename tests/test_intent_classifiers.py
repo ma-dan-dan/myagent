@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.agent.adapter import LLMResponse
+from app.intent import factory as intent_factory
 from app.intent.classifier import IntentClassificationError
 from app.intent.factory import IntentClassifierFactory
 from app.intent import jev_classifier
@@ -57,9 +58,24 @@ def test_llm_classifier_parses_valid_json_without_tools():
     result = LLMIntentClassifier(llm).classify("帮我生成查询产量的 SQL")
 
     assert result.intent is IntentName.NL2SQL
-    assert result.provider == "llm"
+    assert result.provider == "qwen"
     assert result.model == "test-qwen"
     assert llm.calls[0][1] == []
+
+
+def test_llm_classifier_records_actual_intent_adapter_provider():
+    llm = StubLLM(
+        LLMResponse.message(
+            '{"intent":"chat","data_action":null,"confidence":0.91}'
+        )
+    )
+    llm.provider = "deepseek"
+    llm.model = "deepseek-flash"
+
+    result = LLMIntentClassifier(llm).classify("你好")
+
+    assert result.provider == "deepseek"
+    assert result.model == "deepseek-flash"
 
 
 def test_llm_classifier_rejects_invalid_json():
@@ -75,6 +91,35 @@ def test_jev_factory_requires_typesafe_api_key(monkeypatch):
 
     with pytest.raises(IntentClassificationError, match="TYPESAFE_API_KEY"):
         IntentClassifierFactory.from_env(StubLLM(LLMResponse.message("{}")))
+
+
+def test_llm_factory_creates_dedicated_adapter_when_not_injected(monkeypatch):
+    dedicated_llm = StubLLM(LLMResponse.message("{}"))
+    monkeypatch.setattr(
+        "app.intent.factory.get_intent_runtime_config",
+        lambda: IntentRuntimeConfig("llm", None),
+    )
+    monkeypatch.setattr(
+        intent_factory.IntentLLMAdapterFactory,
+        "from_env",
+        lambda: dedicated_llm,
+    )
+
+    classifier = IntentClassifierFactory.from_env()
+
+    assert isinstance(classifier, LLMIntentClassifier)
+    assert classifier.llm is dedicated_llm
+
+
+def test_llm_factory_converts_invalid_intent_llm_provider_to_classification_error(monkeypatch):
+    monkeypatch.setattr(
+        "app.intent.factory.get_intent_runtime_config",
+        lambda: IntentRuntimeConfig("llm", None),
+    )
+    monkeypatch.setenv("INTENT_LLM_PROVIDER", "unknown")
+
+    with pytest.raises(IntentClassificationError, match="不支持的 LLM_PROVIDER"):
+        IntentClassifierFactory.from_env()
 
 
 def test_jev_classifier_maps_mocked_official_response(monkeypatch):

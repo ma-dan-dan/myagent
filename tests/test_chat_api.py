@@ -126,6 +126,7 @@ def test_api_serves_native_html_page(tmp_path):
 
 
 def test_api_returns_503_when_real_model_configuration_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     client = TestClient(

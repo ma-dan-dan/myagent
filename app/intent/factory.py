@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from app.agent.adapter import LLMAdapter
+from app.agent.adapter import LLMAdapter, LLMConfigurationError
 from app.config import TYPESAFE_API_KEY_ENV, get_intent_runtime_config
 from app.intent.classifier import IntentClassificationError, IntentClassifier
 from app.intent.fake_classifier import FakeIntentClassifier
 from app.intent.jev_classifier import JevIntentClassifier
+from app.intent.llm_factory import IntentLLMAdapterFactory
 from app.intent.llm_classifier import LLMIntentClassifier
 
 
@@ -20,13 +21,17 @@ class IntentClassifierFactory:
     ALLOWED_PROVIDERS = ("fake", "jev", "llm")
 
     @classmethod
-    def from_env(cls, llm: LLMAdapter) -> IntentClassifier:
+    def from_env(cls, llm: LLMAdapter | None = None) -> IntentClassifier:
         runtime_config = get_intent_runtime_config()
         provider = runtime_config.provider
         if provider == "fake":
             return FakeIntentClassifier()
         if provider == "llm":
-            return LLMIntentClassifier(llm)
+            try:
+                intent_llm = llm if llm is not None else IntentLLMAdapterFactory.from_env()
+            except LLMConfigurationError as exc:
+                raise IntentClassificationError(str(exc)) from exc
+            return LLMIntentClassifier(intent_llm)
         if provider == "jev":
             api_key = runtime_config.typesafe_api_key
             if not api_key or not api_key.strip():

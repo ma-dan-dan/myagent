@@ -17,7 +17,7 @@ class LLMProviderConfig:
     provider: str
     api_key_env: str
     model: str
-    base_url_env: str
+    base_url: str | None
 
 
 @dataclass(frozen=True)
@@ -30,23 +30,29 @@ class LLMRuntimeConfig:
 
 # 主聊天模型配置：定义 Provider 白名单、默认模型和密钥/地址变量名。
 LLM_PROVIDER_ENV = "LLM_PROVIDER"
-DEFAULT_LLM_PROVIDER = "openai"
+DEFAULT_LLM_PROVIDER = "qwen"
+
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
+OPENAI_BASE_URL = None
+
 DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
-DEEPSEEK_BASE_URL_ENV = "DEEPSEEK_BASE_URL"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+
 QWEN_API_KEY_ENV = "QWEN_API_KEY"
-QWEN_BASE_URL_ENV = "QWEN_BASE_URL"
+QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
 LLM_PROVIDER_CONFIGS = {
-    "openai": LLMProviderConfig("openai", OPENAI_API_KEY_ENV, "gpt-4o-mini", OPENAI_BASE_URL_ENV),
-    "deepseek": LLMProviderConfig("deepseek", DEEPSEEK_API_KEY_ENV, "deepseek-flash", DEEPSEEK_BASE_URL_ENV),
-    "qwen": LLMProviderConfig("qwen", QWEN_API_KEY_ENV, "deepseek-v4.1-flash", QWEN_BASE_URL_ENV),
+    "openai": LLMProviderConfig("openai", OPENAI_API_KEY_ENV, "gpt-4o-mini", OPENAI_BASE_URL),
+    "deepseek": LLMProviderConfig("deepseek", DEEPSEEK_API_KEY_ENV, "deepseek-flash", DEEPSEEK_BASE_URL),
+    "qwen": LLMProviderConfig("qwen", QWEN_API_KEY_ENV, "deepseek-v4.1-flash", QWEN_BASE_URL),
 }
 
 
 # 意图识别配置：定义分类器默认 Provider、Jev 密钥变量名和固定模型。
 DEFAULT_INTENT_PROVIDER = "llm"
 INTENT_PROVIDER_ENV = "INTENT_PROVIDER"
+
+
 TYPESAFE_API_KEY_ENV = "TYPESAFE_API_KEY"
 JEV_MODEL = "typesafe/jev-1.13"
 
@@ -55,6 +61,18 @@ JEV_MODEL = "typesafe/jev-1.13"
 class IntentRuntimeConfig:
     provider: str
     typesafe_api_key: str | None
+
+
+# 意图 LLM 配置：允许意图分类使用独立 Provider，未配置时跟随主聊天模型 Provider。
+INTENT_LLM_PROVIDER_ENV = "INTENT_LLM_PROVIDER"
+
+
+@dataclass(frozen=True)
+class IntentLLMRuntimeConfig:
+    provider: str
+    api_key: str | None
+    model: str
+    base_url: str | None
 
 
 # 运行参数配置：集中管理路由策略等不属于模型凭据的运行时参数。
@@ -70,7 +88,7 @@ def get_llm_runtime_config() -> LLMRuntimeConfig:
         provider=provider,
         api_key=os.getenv(provider_config.api_key_env),
         model=provider_config.model,
-        base_url=os.getenv(provider_config.base_url_env),
+        base_url=provider_config.base_url,
     )
 
 
@@ -78,4 +96,21 @@ def get_intent_runtime_config() -> IntentRuntimeConfig:
     return IntentRuntimeConfig(
         provider=(os.getenv(INTENT_PROVIDER_ENV) or DEFAULT_INTENT_PROVIDER).strip().lower(),
         typesafe_api_key=os.getenv(TYPESAFE_API_KEY_ENV),
+    )
+
+
+def get_intent_llm_runtime_config() -> IntentLLMRuntimeConfig:
+    provider = (
+        os.getenv(INTENT_LLM_PROVIDER_ENV)
+        or os.getenv(LLM_PROVIDER_ENV)
+        or DEFAULT_LLM_PROVIDER
+    ).strip().lower()
+    provider_config = LLM_PROVIDER_CONFIGS.get(provider)
+    if provider_config is None:
+        raise ValueError(provider)
+    return IntentLLMRuntimeConfig(
+        provider=provider,
+        api_key=os.getenv(provider_config.api_key_env),
+        model=provider_config.model,
+        base_url=provider_config.base_url,
     )

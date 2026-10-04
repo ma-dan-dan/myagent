@@ -17,20 +17,19 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 在现有聊天入口前增加 `chat`、`data_operation`、`nl2sql` 三类意图识别。
 - `data_operation` 携带 `read`、`create`、`update`、`delete` 或 `unknown` 预留动作字段；当前数据类意图只返回稳定占位响应。
 - 通过 `INTENT_PROVIDER` 切换 `fake`、`llm` 和 `jev` 分类器，三者统一输出 `IntentDecision`。
-- `llm` 分类器复用现有 LLMAdapter，要求 JSON 输出并经过 Pydantic 校验；低置信度或非法分类结果路由到普通聊天。
+- `llm` 分类器使用独立的意图 LLMAdapter，要求 JSON 输出并经过 Pydantic 校验；主聊天模型与意图模型可以使用不同 Provider，低置信度或非法分类结果路由到普通聊天。
 - `jev` 分类器使用官方 `typesafe-sdk`，固定模型为 `typesafe/jev-1.13`，只从 `TYPESAFE_API_KEY` 读取密钥。
 - 每次分类保留原始 provider、模型、意图、置信度、延迟和 Token 用量；低置信度只改变实际路由，并提供 `GET /api/v1/intent-metrics` 双口径指标接口。
 
 PowerShell 配置示例：
 
 ```powershell
-$env:INTENT_PROVIDER = "fake"
 $env:INTENT_PROVIDER = "llm"
-$env:INTENT_PROVIDER = "jev"
-$env:TYPESAFE_API_KEY = "<your-key>"
+$env:INTENT_LLM_PROVIDER = "deepseek"
+$env:DEEPSEEK_API_KEY = "<your-intent-key>"
 ```
 
-普通 LLM 分类器复用已有的 `LLM_PROVIDER`、Provider API Key 和模型配置；Jev 分类器只读取官方 `TYPESAFE_API_KEY`。
+未设置 `INTENT_LLM_PROVIDER` 时，意图模型默认跟随 `LLM_PROVIDER`，但仍会创建独立实例；Jev 分类器只读取官方 `TYPESAFE_API_KEY`。
 
 可使用固定评测样本运行分类指标汇总：
 
@@ -46,19 +45,16 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 ```text
 Web / API Request
         ↓
-ChatService
-        ↓
-IntentRouter
-  ├─ FakeIntentClassifier
-  ├─ JevIntentClassifier
-  └─ LLMIntentClassifier
-        ↓
-  ├─ chat
-  │    ↓
-  │  ContextManager → ChatAgent → ToolRegistry → SchemaSearchTool
-  │                       ↓
-  │                   LLMAdapter → LiteLLM Provider
-  │
+ChatService → IntentRouter
+                ├─ FakeIntentClassifier
+                ├─ JevIntentClassifier
+                └─ LLMIntentClassifier
+                         ↓
+                    IntentLLMAdapter → LiteLLM Provider
+                         ↓
+  ├─ chat → ContextManager → ChatAgent → ToolRegistry → SchemaSearchTool
+  │                              ↓
+  │                         Chat LLMAdapter → LiteLLM Provider
   ├─ data_operation → 当前测试占位响应
   └─ nl2sql         → 当前测试占位响应
 ```
@@ -71,17 +67,15 @@ IntentRouter
 
 | 环境变量 | 用途 |
 | --- | --- |
-| `LLM_PROVIDER` | 主聊天模型 Provider，默认 `openai`。 |
+| `LLM_PROVIDER` | 主聊天模型 Provider，默认 `qwen`。 |
 | `OPENAI_API_KEY` | OpenAI 主聊天模型 API Key。 |
-| `OPENAI_BASE_URL` | OpenAI 兼容地址，可选。 |
 | `DEEPSEEK_API_KEY` | DeepSeek 主聊天模型 API Key。 |
-| `DEEPSEEK_BASE_URL` | DeepSeek 兼容地址，可选。 |
 | `QWEN_API_KEY` | Qwen 主聊天模型 API Key。 |
-| `QWEN_BASE_URL` | Qwen 兼容地址，可选。 |
 | `INTENT_PROVIDER` | 意图分类器 Provider，默认 `llm`，可选 `fake`、`llm`、`jev`。 |
+| `INTENT_LLM_PROVIDER` | 意图模型 Provider；仅 `INTENT_PROVIDER=llm` 时生效，未配置时跟随 `LLM_PROVIDER`。 |
 | `TYPESAFE_API_KEY` | Jev 意图分类器 API Key，仅 `INTENT_PROVIDER=jev` 时使用。 |
 
-主聊天默认模型在 `app/config.py` 的 `LLM_PROVIDER_CONFIGS` 中维护：OpenAI 为 `gpt-4o-mini`，DeepSeek 为 `deepseek-flash`，Qwen 为 `deepseek-v4.1-flash`。
+主聊天和意图模型的默认模型均在 `app/config.py` 的 `LLM_PROVIDER_CONFIGS` 中维护：OpenAI 为 `gpt-4o-mini`，DeepSeek 为 `deepseek-flash`，Qwen 为 `deepseek-v4.1-flash`。各 Provider 的固定 Base URL 也在该文件中维护：DeepSeek 为 `https://api.deepseek.com`，Qwen 为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，OpenAI 使用 LiteLLM 默认地址。
 
 ## 快速启动
 
@@ -97,7 +91,10 @@ python -m pip install -r requirements.txt
 
 ```powershell
 $env:LLM_PROVIDER = "qwen"
-$env:QWEN_API_KEY = "<your-key>"
+$env:QWEN_API_KEY = "<your-chat-key>"
+$env:INTENT_PROVIDER = "llm"
+$env:INTENT_LLM_PROVIDER = "deepseek"
+$env:DEEPSEEK_API_KEY = "<your-intent-key>"
 uvicorn app.main:app --reload
 ```
 
@@ -115,7 +112,7 @@ Invoke-RestMethod -Method Post `
   -Body $body
 ```
 
-模型名称在 `app/agent/llm_providers.py` 的各 Provider 类中维护；API Key 不写入代码或仓库。
+模型名称和固定 Base URL 在 `app/config.py` 中维护；API Key 不写入代码或仓库。
 
 ## 测试
 
@@ -148,5 +145,6 @@ web/           简单前端页面
 - `docs/v3_context-token-memory-management.md`：上下文、Token 与长期记忆。
 - `docs/v4_intent-recognition.md`：意图识别、分类器切换与评测。
 - `docs/v4_intent-recognition-fix.md`：原始分类结果、实际路由结果与指标归因修复。
+- `docs/v5_intent-routing-llm-adapter-plan.md`：独立意图路由模型 Adapter。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。

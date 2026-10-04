@@ -43,6 +43,34 @@ def test_chat_intent_keeps_existing_agent_path(tmp_path):
     assert response.json()["intent_decision"]["intent"] == "chat"
 
 
+def test_create_app_uses_injected_intent_llm_separately_from_chat_llm(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTENT_PROVIDER", "llm")
+    chat_llm = FakeLLM([LLMResponse.message("主聊天模型回复")])
+    intent_llm = FakeLLM(
+        [LLMResponse.message('{"intent":"chat","data_action":null,"confidence":0.95}')]
+    )
+    chat_llm.provider = "qwen"
+    chat_llm.model = "chat-model"
+    intent_llm.provider = "deepseek"
+    intent_llm.model = "intent-model"
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=chat_llm,
+            intent_llm_adapter=intent_llm,
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "你好"})
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "主聊天模型回复"
+    assert response.json()["intent_decision"]["provider"] == "deepseek"
+    assert response.json()["intent_decision"]["model"] == "intent-model"
+
+
 def test_data_operation_returns_stable_placeholder(tmp_path):
     classifier = FakeIntentClassifier.for_result("查今天产量", "data_operation", "read", 1.0)
     client = make_client(tmp_path, classifier)
