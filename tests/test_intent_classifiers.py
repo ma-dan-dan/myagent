@@ -7,6 +7,7 @@ from app.intent.factory import IntentClassifierFactory
 from app.intent import jev_classifier
 from app.intent.llm_classifier import LLMIntentClassifier
 from app.intent.models import DataAction, IntentDecision, IntentName
+from app.config import IntentRuntimeConfig
 
 
 class StubLLM:
@@ -115,3 +116,15 @@ def test_intent_factory_rejects_unknown_provider(monkeypatch):
 
     with pytest.raises(IntentClassificationError, match="fake, jev, llm"):
         IntentClassifierFactory.from_env(StubLLM(LLMResponse.message("{}")))
+
+
+def test_jev_factory_uses_centralized_intent_runtime_config(monkeypatch):
+    monkeypatch.setattr(
+        "app.intent.factory.get_intent_runtime_config",
+        lambda: IntentRuntimeConfig("jev", "jev-key"),
+    )
+
+    classifier = IntentClassifierFactory.from_env(StubLLM(LLMResponse.message("{}")))
+
+    assert isinstance(classifier, jev_classifier.JevIntentClassifier)
+    assert classifier.api_key == "jev-key"

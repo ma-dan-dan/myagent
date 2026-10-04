@@ -6,6 +6,7 @@ import pytest
 from app.agent.adapter import LLMConfigurationError, LLMResponse, ToolSpec
 from app.agent.llm_factory import LLMAdapterConfig, LLMAdapterFactory
 from app.agent.llm_providers import DeepSeekLLMAdapter, OpenAILLMAdapter, QwenLLMAdapter
+from app.config import LLMRuntimeConfig
 
 
 def make_response(content=None, tool_calls=None, usage=None):
@@ -88,6 +89,18 @@ def test_factory_from_env_rejects_unknown_provider(monkeypatch):
 
     with pytest.raises(LLMConfigurationError, match="openai, deepseek, qwen"):
         LLMAdapterFactory.from_env()
+
+
+def test_factory_uses_centralized_llm_runtime_config(monkeypatch):
+    monkeypatch.setattr(
+        "app.agent.llm_factory.get_llm_runtime_config",
+        lambda: LLMRuntimeConfig("deepseek", "key", "deepseek-flash", None),
+    )
+
+    adapter = LLMAdapterFactory.from_env()
+
+    assert adapter.provider == "deepseek"
+    assert adapter.model == "deepseek-flash"
 
 
 def test_factory_reads_provider_specific_missing_configuration(monkeypatch):

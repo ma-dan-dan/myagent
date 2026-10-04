@@ -5,6 +5,7 @@ from typing import Any
 
 from typesafe_sdk import Choice, TypeSafeClient
 
+from app.config import JEV_MODEL, TYPESAFE_API_KEY_ENV
 from app.intent.classifier import IntentClassificationError, InvalidIntentDecision
 from app.intent.models import DataAction, IntentDecision, IntentName
 from app.memory.models import TokenUsage
@@ -12,12 +13,12 @@ from app.memory.models import TokenUsage
 
 class JevIntentClassifier:
     PROVIDER = "jev"
-    MODEL = "typesafe/jev-1.13"
+    MODEL = JEV_MODEL
 
     def __init__(self, api_key: str | None) -> None:
         self.api_key = (api_key or "").strip()
         if not self.api_key:
-            raise IntentClassificationError("缺少 Jev 配置：TYPESAFE_API_KEY。")
+            raise IntentClassificationError(f"缺少 Jev 配置：{TYPESAFE_API_KEY_ENV}。")
 
     def classify(self, message: str) -> IntentDecision:
         started = time.perf_counter()

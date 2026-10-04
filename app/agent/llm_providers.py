@@ -1,28 +1,34 @@
 from app.agent.adapter import LiteLLMAdapter
+from app.config import LLM_PROVIDER_CONFIGS
+
+
+_OPENAI_CONFIG = LLM_PROVIDER_CONFIGS["openai"]
+_DEEPSEEK_CONFIG = LLM_PROVIDER_CONFIGS["deepseek"]
+_QWEN_CONFIG = LLM_PROVIDER_CONFIGS["qwen"]
 
 
 class OpenAILLMAdapter(LiteLLMAdapter):
-    PROVIDER = "openai"
+    PROVIDER = _OPENAI_CONFIG.provider
     MODEL_PREFIX = ""
     DEFAULT_BASE_URL = None
-    API_KEY_ENV = "OPENAI_API_KEY"
-    MODEL_ENV = "OPENAI_MODEL"
-    BASE_URL_ENV = "OPENAI_BASE_URL"
+    API_KEY_ENV = _OPENAI_CONFIG.api_key_env
+    MODEL_ENV = _OPENAI_CONFIG.model
+    BASE_URL_ENV = _OPENAI_CONFIG.base_url_env
 
 
 class DeepSeekLLMAdapter(LiteLLMAdapter):
-    PROVIDER = "deepseek"
+    PROVIDER = _DEEPSEEK_CONFIG.provider
     MODEL_PREFIX = "deepseek/"
     DEFAULT_BASE_URL = "https://api.deepseek.com"
-    API_KEY_ENV = "DEEPSEEK_API_KEY"
-    MODEL_ENV = "deepseek-flash"
-    BASE_URL_ENV = "DEEPSEEK_BASE_URL"
+    API_KEY_ENV = _DEEPSEEK_CONFIG.api_key_env
+    MODEL_ENV = _DEEPSEEK_CONFIG.model
+    BASE_URL_ENV = _DEEPSEEK_CONFIG.base_url_env
 
 
 class QwenLLMAdapter(LiteLLMAdapter):
-    PROVIDER = "qwen"
+    PROVIDER = _QWEN_CONFIG.provider
     MODEL_PREFIX = "dashscope/"
     DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    API_KEY_ENV = "QWEN_API_KEY"
-    MODEL_ENV = "deepseek-v4.1-flash"
-    BASE_URL_ENV = "QWEN_BASE_URL"
+    API_KEY_ENV = _QWEN_CONFIG.api_key_env
+    MODEL_ENV = _QWEN_CONFIG.model
+    BASE_URL_ENV = _QWEN_CONFIG.base_url_env

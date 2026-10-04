@@ -63,6 +63,26 @@ IntentRouter
   └─ nl2sql         → 当前测试占位响应
 ```
 
+## 配置位置
+
+所有运行时环境变量名称、默认 Provider、默认模型和读取逻辑集中维护在 `app/config.py`。业务模块和工厂不直接读取环境变量；真实 API Key 只能设置在系统环境变量或当前 PowerShell 会话中，不能写入 `app/config.py`、README、测试或 Git。
+
+当前配置项：
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `LLM_PROVIDER` | 主聊天模型 Provider，默认 `openai`。 |
+| `OPENAI_API_KEY` | OpenAI 主聊天模型 API Key。 |
+| `OPENAI_BASE_URL` | OpenAI 兼容地址，可选。 |
+| `DEEPSEEK_API_KEY` | DeepSeek 主聊天模型 API Key。 |
+| `DEEPSEEK_BASE_URL` | DeepSeek 兼容地址，可选。 |
+| `QWEN_API_KEY` | Qwen 主聊天模型 API Key。 |
+| `QWEN_BASE_URL` | Qwen 兼容地址，可选。 |
+| `INTENT_PROVIDER` | 意图分类器 Provider，默认 `llm`，可选 `fake`、`llm`、`jev`。 |
+| `TYPESAFE_API_KEY` | Jev 意图分类器 API Key，仅 `INTENT_PROVIDER=jev` 时使用。 |
+
+主聊天默认模型在 `app/config.py` 的 `LLM_PROVIDER_CONFIGS` 中维护：OpenAI 为 `gpt-4o-mini`，DeepSeek 为 `deepseek-flash`，Qwen 为 `deepseek-v4.1-flash`。
+
 ## 快速启动
 
 在 PowerShell 中执行：

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Type
 
 from app.agent.adapter import LLMAdapter, LLMConfigurationError, LiteLLMAdapter
 from app.agent.llm_providers import DeepSeekLLMAdapter, OpenAILLMAdapter, QwenLLMAdapter
+from app.config import get_llm_runtime_config
 
 
 @dataclass(frozen=True)
@@ -40,12 +40,16 @@ class LLMAdapterFactory:
 
     @classmethod
     def from_env(cls) -> LLMAdapter:
-        provider = (os.getenv("LLM_PROVIDER") or "openai").strip().lower()
-        adapter_class = cls._provider_class(provider)
+        try:
+            runtime_config = get_llm_runtime_config()
+        except ValueError as exc:
+            cls._provider_class(str(exc))
+            raise
+        adapter_class = cls._provider_class(runtime_config.provider)
         config = LLMAdapterConfig(
-            provider=provider,
-            api_key=os.getenv(adapter_class.API_KEY_ENV),
-            model=adapter_class.MODEL_ENV,
-            base_url=os.getenv(adapter_class.BASE_URL_ENV),
+            provider=runtime_config.provider,
+            api_key=runtime_config.api_key,
+            model=runtime_config.model,
+            base_url=runtime_config.base_url,
         )
         return cls.create(config)
