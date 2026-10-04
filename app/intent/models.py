@@ -38,3 +38,11 @@ class IntentDecision(BaseModel):
         if self.intent != IntentName.DATA_OPERATION:
             self.data_action = None
         return self
+
+
+class IntentRouteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: IntentDecision
+    routed_intent: IntentName
+    fallback_reason: str | None = Field(default=None, max_length=300)

@@ -1,5 +1,5 @@
 from app.intent.classifier import InvalidIntentDecision, IntentClassificationError, IntentClassifier
-from app.intent.models import DataAction, IntentDecision, IntentName
+from app.intent.models import DataAction, IntentDecision, IntentName, IntentRouteResult
 
 __all__ = [
     "DataAction",
@@ -7,5 +7,6 @@ __all__ = [
     "IntentClassifier",
     "IntentDecision",
     "IntentName",
+    "IntentRouteResult",
     "InvalidIntentDecision",
 ]
