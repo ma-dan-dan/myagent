@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
-  <title id="title">MyAgent 当前架构与 V6 RAG 目标链路</title>
-  <desc id="desc">展示请求、意图识别、聊天模型、DDL 与 SampleValue 双路召回、配置和存储之间的关系。</desc>
+  <title id="title">MyAgent 当前架构与 V6 DDL 和 SampleValue RAG 链路</title>
+  <desc id="desc">展示请求、意图识别、聊天模型、已实现的 DDL 与 SampleValue 双路召回、安全过滤、预算失败分支、配置和存储之间的关系。</desc>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#f8fbff"/>
@@ -42,17 +42,19 @@
       .current { stroke: #6aa6d8; fill: url(#blue); }
       .intent { stroke: #66b889; fill: url(#green); }
       .planned { stroke: #e6a642; fill: url(#orange); stroke-dasharray: 9 7; }
+      .rag { stroke: #e6a642; fill: url(#orange); }
       .storage { stroke: #9877d1; fill: url(#purple); }
       .muted { stroke: #94a3b8; fill: #f8fafc; }
       .line { stroke: #64748b; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
       .plannedLine { stroke: #d97706; stroke-width: 2.2; fill: none; stroke-dasharray: 9 7; marker-end: url(#arrowOrange); }
+      .ragLine { stroke: #d97706; stroke-width: 2.2; fill: none; marker-end: url(#arrowOrange); }
       .divider { stroke: #cbd5e1; stroke-width: 1; stroke-dasharray: 4 8; }
     </style>
   </defs>
 
   <rect width="1600" height="1120" fill="url(#background)"/>
-  <text x="70" y="62" class="title">MyAgent 当前架构与 V6 RAG 目标链路</text>
-  <text x="70" y="91" class="subtitle">实线：当前已接入链路　·　橙色虚线：V6 DDL + SampleValue RAG 规划链路</text>
+  <text x="70" y="62" class="title">MyAgent 当前架构与 V6 DDL + SampleValue RAG 链路</text>
+  <text x="70" y="91" class="subtitle">全部为当前已接入链路　·　橙色模块表示 Schema RAG 与安全边界</text>
 
   <rect x="630" y="120" width="340" height="64" class="box current"/>
   <text x="800" y="148" text-anchor="middle" class="label">Web / API Request</text>
@@ -94,10 +96,10 @@
   <text x="285" y="651" text-anchor="middle" class="small">ContextManager</text>
   <text x="285" y="676" text-anchor="middle" class="small">→ ChatAgent → Chat LLMAdapter</text>
 
-  <rect x="595" y="590" width="410" height="112" class="box planned"/>
+  <rect x="595" y="590" width="410" height="112" class="box rag"/>
   <text x="800" y="625" text-anchor="middle" class="label">data_operation / read</text>
   <text x="800" y="651" text-anchor="middle" class="small">SchemaLinkingService</text>
-  <text x="800" y="676" text-anchor="middle" class="small">→ Fusion Context → ChatAgent(tools=[])</text>
+  <text x="800" y="676" text-anchor="middle" class="small">→ RRF Context → ChatAgent(tools=[])</text>
 
   <rect x="1110" y="590" width="410" height="112" class="box muted"/>
   <text x="1315" y="625" text-anchor="middle" class="label">其他路由</text>
@@ -105,42 +107,44 @@
   <text x="1315" y="676" text-anchor="middle" class="small">nl2sql → 稳定占位响应</text>
 
   <path d="M800 525 L285 590" class="line"/>
-  <path d="M800 525 L800 590" class="plannedLine"/>
+  <path d="M800 525 L800 590" class="ragLine"/>
   <path d="M800 525 L1315 590" class="line"/>
 
-  <text x="680" y="735" class="section">V6 RAG PIPELINE</text>
+  <text x="680" y="735" class="section">V6 RAG PIPELINE（已实现）</text>
   <line x1="680" y1="747" x2="920" y2="747" class="divider"/>
 
-  <rect x="610" y="770" width="180" height="90" class="box planned"/>
+  <rect x="610" y="770" width="180" height="90" class="box rag"/>
   <text x="700" y="805" text-anchor="middle" class="label">DDL Retriever</text>
-  <text x="700" y="830" text-anchor="middle" class="small">top-k</text>
-  <text x="700" y="850" text-anchor="middle" class="tiny">表结构语义召回</text>
+  <text x="700" y="830" text-anchor="middle" class="small">默认仅 DDL</text>
+  <text x="700" y="850" text-anchor="middle" class="tiny">表结构语义召回 top-k</text>
 
-  <rect x="810" y="770" width="180" height="90" class="box planned"/>
+  <rect x="810" y="770" width="180" height="90" class="box rag"/>
   <text x="900" y="805" text-anchor="middle" class="label">SampleValue</text>
-  <text x="900" y="830" text-anchor="middle" class="small">Retriever top-k</text>
-  <text x="900" y="850" text-anchor="middle" class="tiny">值语义召回</text>
+  <text x="900" y="830" text-anchor="middle" class="small">仅显式样例</text>
+  <text x="900" y="850" text-anchor="middle" class="tiny">敏感字段和值拒绝入库</text>
 
-  <rect x="1010" y="770" width="180" height="90" class="box planned"/>
+  <rect x="1010" y="770" width="180" height="90" class="box rag"/>
   <text x="1100" y="805" text-anchor="middle" class="label">Fusion</text>
-  <text x="1100" y="830" text-anchor="middle" class="small">RRF / 去重</text>
-  <text x="1100" y="850" text-anchor="middle" class="tiny">按 table_id 合并</text>
+  <text x="1100" y="830" text-anchor="middle" class="small">RRF / 去重 / 阈值</text>
+  <text x="1100" y="850" text-anchor="middle" class="tiny">按 table_id 融合</text>
 
-  <rect x="1210" y="770" width="180" height="90" class="box planned"/>
+  <rect x="1210" y="770" width="180" height="90" class="box rag"/>
   <text x="1300" y="805" text-anchor="middle" class="label">Context Packer</text>
   <text x="1300" y="830" text-anchor="middle" class="small">Token Budget</text>
-  <text x="1300" y="850" text-anchor="middle" class="tiny">证据注入 Prompt</text>
+  <text x="1300" y="850" text-anchor="middle" class="tiny">无法容纳 → HTTP 413</text>
 
-  <path d="M800 702 L700 770" class="plannedLine"/>
-  <path d="M800 702 L900 770" class="plannedLine"/>
-  <path d="M790 815 L1010 815" class="plannedLine"/>
-  <path d="M990 815 L1010 815" class="plannedLine"/>
-  <path d="M1190 815 L1210 815" class="plannedLine"/>
-  <path d="M1300 860 L1300 915" class="plannedLine"/>
+  <path d="M800 702 L700 770" class="ragLine"/>
+  <path d="M800 702 L900 770" class="ragLine"/>
+  <path d="M790 815 L1010 815" class="ragLine"/>
+  <path d="M990 815 L1010 815" class="ragLine"/>
+  <path d="M1190 815 L1210 815" class="ragLine"/>
+  <path d="M1300 860 L1300 915" class="ragLine"/>
 
-  <rect x="1180" y="915" width="240" height="74" class="box planned"/>
+  <rect x="1180" y="915" width="240" height="74" class="box rag"/>
   <text x="1300" y="946" text-anchor="middle" class="label">一次主模型回答</text>
-  <text x="1300" y="971" text-anchor="middle" class="small">不调用 RAG Tool Loop</text>
+  <text x="1300" y="971" text-anchor="middle" class="small">ChatAgent(tools=[])；无 Tool Loop</text>
+
+  <text x="1490" y="740" text-anchor="end" class="tiny">低分 → empty　·　歧义 → 确认提示　·　预算失败 → HTTP 413</text>
 
   <text x="70" y="772" class="section">CROSS-CUTTING</text>
   <line x1="70" y1="784" x2="520" y2="784" class="divider"/>
@@ -165,21 +169,21 @@
   <text x="420" y="990" text-anchor="middle" class="small">摘要 / Token / MEMORY.md</text>
   <text x="420" y="1010" text-anchor="middle" class="tiny">项目级长期记忆</text>
 
-  <rect x="610" y="930" width="250" height="92" class="box planned"/>
+  <rect x="610" y="930" width="250" height="92" class="box rag"/>
   <text x="735" y="964" text-anchor="middle" class="label">Qwen Embedding</text>
   <text x="735" y="990" text-anchor="middle" class="small">text-embedding-v3</text>
   <text x="735" y="1010" text-anchor="middle" class="tiny">QWEN_API_KEY</text>
 
-  <rect x="880" y="930" width="250" height="92" class="box planned"/>
+  <rect x="880" y="930" width="250" height="92" class="box rag"/>
   <text x="1005" y="964" text-anchor="middle" class="label">LanceDB Index</text>
   <text x="1005" y="990" text-anchor="middle" class="small">DDL / SampleValue</text>
-  <text x="1005" y="1010" text-anchor="middle" class="tiny">项目级向量索引</text>
+  <text x="1005" y="1010" text-anchor="middle" class="tiny">namespace 同步与旧文档清理</text>
 
   <rect x="70" y="1050" width="1350" height="42" rx="12" fill="#e2e8f0" stroke="#cbd5e1"/>
   <text x="745" y="1077" text-anchor="middle" class="small">app/config.py：统一管理 Provider、模型、Base URL、API Key 环境变量和运行参数</text>
 
-  <path d="M735 930 L735 860" class="plannedLine"/>
-  <path d="M860 976 L880 976" class="plannedLine"/>
-  <path d="M700 860 L700 930" class="plannedLine"/>
-  <path d="M900 860 L1005 930" class="plannedLine"/>
+  <path d="M735 930 L735 860" class="ragLine"/>
+  <path d="M860 976 L880 976" class="ragLine"/>
+  <path d="M700 860 L700 930" class="ragLine"/>
+  <path d="M900 860 L1005 930" class="ragLine"/>
 </svg>

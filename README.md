@@ -43,9 +43,9 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 
 ## 架构概览
 
-![MyAgent 当前架构与 V6 RAG 目标链路](docs/images/myagent-architecture.svg)
+![MyAgent 当前架构与 V6 DDL 和 SampleValue RAG 链路](docs/images/myagent-architecture.svg)
 
-图中实线表示当前已接入链路；`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 融合，再以 `tools=[]` 交由 ChatAgent 一次回答。
+图中全部为当前已接入链路。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；低分、歧义和预算不足走稳定的 empty/确认提示/`413` 分支。
 
 ## 配置位置
 
