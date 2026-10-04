@@ -10,8 +10,9 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 通过 `ToolRegistry` 管理工具白名单；当前已接入 `search_schema` 工具。
 - 对 `data_operation/read` 使用 DDL 与脱敏 SampleValue 的双路向量召回；默认 Catalog 只建立 DDL 索引，RAG 只提供 Schema 证据，不执行 SQL。
 - SampleValue 仅接受外部明确提供的样例；敏感字段和值、低相似度候选会被过滤，歧义候选返回确认提示，Schema 证据无法安全放入上下文预算时接口返回 `413`。
-- `nl2sql` 使用 LangGraph 编排 `SchemaLinking → GenSQL → ValidateSQL → Execute → Reflection → Output`；GenSQL 和 Reflection 均复用现有 `LLMAdapter.complete(messages, tools=[])`。
-- NL2SQL 仅允许白名单表/列上的单条只读 `SELECT/WITH`，通过 SQLGlot AST 校验并受行数、列数、超时和反思次数限制；默认未配置业务数据库时返回明确 `503`，不会使用聊天会话 SQLite。
+- `nl2sql` 使用 LangGraph 编排 `SchemaLinking → ContextPrepare → GenSQL → ValidateSQL → Execute → Reflection → Output`；GenSQL 和 Reflection 均复用现有 `LLMAdapter.complete(messages, tools=[])`，Reflection 的短原因会回传到下一次 GenSQL。
+- NL2SQL 复用会话 ContextManager，因此同一 `user_id + session_id` 的近期消息、摘要、`MEMORY.md`、Token 预算和用量记录都会进入图；主回答完成后才持久化本轮长期记忆。
+- NL2SQL 仅允许白名单表/列上的单条只读 `SELECT/WITH`，拒绝 `SELECT *` 与 `table.*`，但允许 `COUNT(*)` 等不返回全部字段的聚合；SQLGlot AST 校验、行数、列数、超时和反思次数均受限。默认未配置、不可用或未启用的业务数据库返回明确 `503`，不会使用聊天会话 SQLite。
 - NL2SQL 自动化测试使用 Fake LLM、Fake Executor 或临时 SQLite 文件，不调用真实模型、Embedding 或业务数据库。
 - 使用 LiteLLM 接入 OpenAI、DeepSeek、Qwen 三类模型，并保留可注入的 Fake LLM 测试方式。
 - 使用滑动窗口、会话摘要、Token 估算和 `MEMORY.md` 管理会话上下文与长期项目记忆。
@@ -48,7 +49,7 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 
 ![MyAgent 当前架构与 V7 RAG 和 LangGraph NL2SQL 链路](docs/images/myagent-architecture.svg)
 
-图中全部为当前已接入链路。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；`nl2sql` 进入独立 LangGraph，只能通过校验后的 SQLExecutor 访问专用业务库。
+图中全部为当前已接入链路。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；`nl2sql` 进入独立 LangGraph，在 SchemaLinking 后先执行 ContextPrepare，再只能通过校验后的专用只读 SQLExecutor 访问业务库。
 
 ## 配置位置
 
@@ -65,7 +66,8 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 | `INTENT_PROVIDER` | 意图分类器 Provider，默认 `llm`，可选 `fake`、`llm`、`jev`。 |
 | `INTENT_LLM_PROVIDER` | 意图模型 Provider；仅 `INTENT_PROVIDER=llm` 时生效，未配置时跟随 `LLM_PROVIDER`。 |
 | `TYPESAFE_API_KEY` | Jev 意图分类器 API Key，仅 `INTENT_PROVIDER=jev` 时使用。 |
-| `NL2SQL_DATABASE_URL` | 可选的专用只读 SQLite 业务数据库路径；未配置时 NL2SQL 返回 `503`。 |
+| `NL2SQL_ENABLED` | 是否启用 NL2SQL；默认 `true`，支持 `true/false`、`1/0`、`yes/no`。设为 `false` 时 NL2SQL 返回 `503`。 |
+| `NL2SQL_DATABASE_URL` | 可选的专用只读 SQLite 业务数据库。支持普通文件路径（如 `D:/data/business.sqlite3`）或 `sqlite:///D:/data/business.sqlite3`；未配置、文件不存在或 URL scheme 非 SQLite 时 NL2SQL 返回 `503`。 |
 
 主聊天和意图模型的默认模型均在 `app/config.py` 的 `LLM_PROVIDER_CONFIGS` 中维护：OpenAI 为 `gpt-4o-mini`，DeepSeek 为 `deepseek-flash`，Qwen 为 `deepseek-v4.1-flash`。各 Provider 的固定 Base URL 也在该文件中维护：DeepSeek 为 `https://api.deepseek.com`，Qwen 为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，OpenAI 使用 LiteLLM 默认地址。
 RAG 固定使用 Qwen `text-embedding-v3` 与同一个 `QWEN_API_KEY`；DDL 和 SampleValue 分别索引到本地 LanceDB，融合后的少量证据会计入上下文预算后再交给主聊天模型，不进入 Agent Tool Loop。
@@ -88,6 +90,8 @@ $env:QWEN_API_KEY = "<your-chat-key>"
 $env:INTENT_PROVIDER = "llm"
 $env:INTENT_LLM_PROVIDER = "deepseek"
 $env:DEEPSEEK_API_KEY = "<your-intent-key>"
+$env:NL2SQL_ENABLED = "true"
+$env:NL2SQL_DATABASE_URL = "D:/data/business.sqlite3"
 uvicorn app.main:app --reload
 ```
 
@@ -141,5 +145,6 @@ web/           简单前端页面
 - `docs/v5_intent-routing-llm-adapter-plan.md`：独立意图路由模型 Adapter。
 - `docs/v6_rag-ddl-samplevalue-plan.md`：DDL + SampleValue RAG 设计。
 - `docs/v7_langgraph-nl2sql-plan.md`：LangGraph 只读 NL2SQL 工作流设计与实施计划。
+- `docs/v7_langgraph-nl2sql-fix.md`：LangGraph NL2SQL 的字段白名单、上下文、数据库可用性与状态修复计划。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。

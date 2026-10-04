@@ -6,8 +6,9 @@ from fastapi.testclient import TestClient
 
 from app.agent.adapter import LLMResponse
 from app.intent.fake_classifier import FakeIntentClassifier
+from app.intent.models import IntentDecision
 from app.main import create_app
-from app.memory.models import ContextPolicy, TokenUsage
+from app.memory.models import CompactionResult, ContextPolicy, MemoryEntry, TokenUsage
 from app.nl2sql.models import NL2SQLState, QueryResult, SQLDraft, SQLValidationResult
 
 
@@ -265,6 +266,14 @@ def test_api_routes_nl2sql_to_injected_graph_without_agent_loop(tmp_path):
                 validation=SQLValidationResult(ok=True, normalized_sql="SELECT output_quantity FROM production_output LIMIT 100"),
                 query_result=QueryResult(columns=["output_quantity"], rows=[[10]], row_count=1, truncated=False),
                 usage=TokenUsage(requests=2, input_tokens=10, output_tokens=4, total_tokens=14),
+                estimated_context_tokens=23,
+                context_window=1024,
+                maintenance=CompactionResult(
+                    compacted=True,
+                    memory_entries=[MemoryEntry(content="产量查询只允许使用业务数据库。")],
+                    summary_usage=TokenUsage(requests=1, input_tokens=3, output_tokens=2, total_tokens=5),
+                    memory_usage=TokenUsage(requests=1, input_tokens=2, output_tokens=1, total_tokens=3),
+                ),
             )
 
     graph = FakeGraph()
@@ -288,6 +297,13 @@ def test_api_routes_nl2sql_to_injected_graph_without_agent_loop(tmp_path):
     assert response.json()["nl2sql_status"] == "ok"
     assert response.json()["sql"] == "SELECT output_quantity FROM production_output LIMIT 100"
     assert response.json()["query_result"]["rows"] == [[10]]
+    assert response.json()["usage"]["current_turn"]["requests"] == 4
+    assert response.json()["usage"]["current_turn"]["estimated_context_tokens"] == 23
+    assert response.json()["usage"]["current_turn"]["context_window"] == 1024
+    memory_path = tmp_path / ".myagent" / "memory" / "chat" / "MEMORY.md"
+    assert "产量查询只允许使用业务数据库。" in memory_path.read_text(encoding="utf-8")
+    with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
+        assert {row[0] for row in connection.execute("SELECT operation FROM token_usages")} == {"chat", "summary", "memory"}
 
 
 def test_api_returns_503_when_nl2sql_business_database_is_not_configured(tmp_path):
@@ -330,6 +346,10 @@ def test_api_returns_422_and_persists_stable_message_for_unsafe_nl2sql(tmp_path)
                 status="failed",
                 final_message="SQL 校验失败。",
                 validation_error="SQL 引用了未授权的字段。",
+                maintenance=CompactionResult(
+                    compacted=True,
+                    memory_entries=[MemoryEntry(content="不应写入失败的 SQL 结论。")],
+                ),
             )
 
     client = TestClient(
@@ -346,5 +366,174 @@ def test_api_returns_422_and_persists_stable_message_for_unsafe_nl2sql(tmp_path)
     response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
 
     assert response.status_code == 422
+    assert not (tmp_path / ".myagent" / "memory" / "chat" / "MEMORY.md").exists()
     with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
         assert [row[0] for row in connection.execute("SELECT role FROM messages ORDER BY id")] == ["user", "assistant"]
+
+
+def test_api_returns_503_without_calling_dependencies_when_nl2sql_is_disabled(tmp_path, monkeypatch):
+    class CountingSchemaLinkingService:
+        def __init__(self):
+            self.calls = []
+
+        def search(self, message):
+            self.calls.append(message)
+            raise AssertionError("disabled NL2SQL must not link schema")
+
+    monkeypatch.setenv("NL2SQL_ENABLED", "false")
+    schema_linking_service = CountingSchemaLinkingService()
+    fake = FakeLLM([])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=fake,
+            intent_classifier=FakeIntentClassifier.for_result("生成 SQL", "nl2sql", None, 1.0),
+            schema_linking_service=schema_linking_service,
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
+
+    assert response.status_code == 503
+    assert "未启用" in response.json()["detail"]
+    assert schema_linking_service.calls == []
+    assert fake.calls == []
+
+
+def test_api_returns_503_when_configured_nl2sql_database_file_is_missing(tmp_path, monkeypatch):
+    class FakeSchemaLinkingService:
+        def search(self, message):
+            from app.rag.models import SchemaCandidate
+            from app.rag.service import SchemaLinkingResult
+
+            return SchemaLinkingResult(
+                status="ok",
+                context="<schema_evidence>CREATE TABLE production_output (output_quantity INTEGER);</schema_evidence>",
+                candidates=[SchemaCandidate(table_id="production_output", table_name="production_output", ddl="CREATE TABLE production_output (output_quantity INTEGER);", score=1.0)],
+            )
+
+    monkeypatch.setenv("NL2SQL_DATABASE_URL", str(tmp_path / "missing-business.sqlite3"))
+    fake = FakeLLM([LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}')])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=fake,
+            intent_classifier=FakeIntentClassifier.for_result("生成 SQL", "nl2sql", None, 1.0),
+            schema_linking_service=FakeSchemaLinkingService(),
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
+
+    assert response.status_code == 503
+    assert "业务数据库不可用" in response.json()["detail"]
+
+
+def test_default_nl2sql_wiring_uses_dedicated_temporary_sqlite_database(tmp_path, monkeypatch):
+    class FakeSchemaLinkingService:
+        def search(self, message):
+            from app.rag.models import SchemaCandidate
+            from app.rag.service import SchemaLinkingResult
+
+            return SchemaLinkingResult(
+                status="ok",
+                context="<schema_evidence>CREATE TABLE production_output (output_quantity INTEGER);</schema_evidence>",
+                candidates=[SchemaCandidate(table_id="production_output", table_name="production_output", ddl="CREATE TABLE production_output (output_quantity INTEGER);", score=1.0)],
+            )
+
+    business_database = tmp_path / "business.sqlite3"
+    with sqlite3.connect(business_database) as connection:
+        connection.execute("CREATE TABLE production_output (output_quantity INTEGER)")
+        connection.executemany("INSERT INTO production_output VALUES (?)", [(10,), (20,)])
+    monkeypatch.setenv("NL2SQL_ENABLED", "true")
+    monkeypatch.setenv("NL2SQL_DATABASE_URL", f"sqlite:///{business_database.as_posix()}")
+    fake = FakeLLM(
+        [
+            LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}'),
+            LLMResponse.message('{"decision":"pass","reason":"结果符合问题"}'),
+        ]
+    )
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=fake,
+            intent_classifier=FakeIntentClassifier.for_result("生成 SQL", "nl2sql", None, 1.0),
+            schema_linking_service=FakeSchemaLinkingService(),
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "生成 SQL"})
+
+    assert response.status_code == 200
+    assert response.json()["nl2sql_status"] == "ok"
+    assert response.json()["query_result"]["columns"] == ["output_quantity"]
+    assert response.json()["query_result"]["rows"] == [[10], [20]]
+    assert "LIMIT 100" in response.json()["sql"].upper()
+    assert len(fake.calls) == 2
+
+
+def test_default_nl2sql_preserves_session_context_and_writes_memory_after_compaction(tmp_path, monkeypatch):
+    class FakeSchemaLinkingService:
+        def search(self, message):
+            from app.rag.models import SchemaCandidate
+            from app.rag.service import SchemaLinkingResult
+
+            return SchemaLinkingResult(
+                status="ok",
+                context="<schema_evidence>CREATE TABLE production_output (output_quantity INTEGER);</schema_evidence>",
+                candidates=[SchemaCandidate(table_id="production_output", table_name="production_output", ddl="CREATE TABLE production_output (output_quantity INTEGER);", score=1.0)],
+            )
+
+    business_database = tmp_path / "business.sqlite3"
+    with sqlite3.connect(business_database) as connection:
+        connection.execute("CREATE TABLE production_output (output_quantity INTEGER)")
+        connection.execute("INSERT INTO production_output VALUES (10)")
+    monkeypatch.setenv("NL2SQL_ENABLED", "true")
+    monkeypatch.setenv("NL2SQL_DATABASE_URL", str(business_database))
+    fake = FakeLLM(
+        [
+            LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}'),
+            LLMResponse.message('{"decision":"pass","reason":"结果符合问题"}'),
+            LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}'),
+            LLMResponse.message('{"decision":"pass","reason":"结果符合问题"}'),
+            LLMResponse.message("摘要：用户持续查询产量。", usage=TokenUsage(requests=1, input_tokens=4, output_tokens=2, total_tokens=6)),
+            LLMResponse.message('[{"content":"用户持续关注产量数据。"}]', usage=TokenUsage(requests=1, input_tokens=3, output_tokens=2, total_tokens=5)),
+            LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}'),
+            LLMResponse.message('{"decision":"pass","reason":"结果符合问题"}'),
+        ]
+    )
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=fake,
+            intent_classifier=FakeIntentClassifier(
+                {
+                    message: IntentDecision(intent="nl2sql", confidence=1.0, provider="fake", model="fake-intent-v1", latency_ms=0)
+                    for message in ("查询产量", "那按日期呢", "再查一次")
+                }
+            ),
+            schema_linking_service=FakeSchemaLinkingService(),
+            workspace_root=tmp_path,
+            context_policy=ContextPolicy(recent_message_limit=2),
+        )
+    )
+
+    first = client.post("/api/v1/chat", json={"user_id": "alice", "message": "查询产量"})
+    session_id = first.json()["session_id"]
+    second = client.post("/api/v1/chat", json={"user_id": "alice", "session_id": session_id, "message": "那按日期呢"})
+    third = client.post("/api/v1/chat", json={"user_id": "alice", "session_id": session_id, "message": "再查一次"})
+
+    assert first.status_code == second.status_code == third.status_code == 200
+    assert "查询产量" in json.dumps(fake.calls[2], ensure_ascii=False)
+    assert third.json()["usage"]["current_turn"]["requests"] == 2
+    memory_path = tmp_path / ".myagent" / "memory" / "chat" / "MEMORY.md"
+    assert "用户持续关注产量数据。" in memory_path.read_text(encoding="utf-8")
+    with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
+        assert {row[0] for row in connection.execute("SELECT operation FROM token_usages")} == {"chat", "summary", "memory"}

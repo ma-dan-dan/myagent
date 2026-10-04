@@ -4,6 +4,7 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import unquote, urlparse
 
 from app.nl2sql.models import QueryResult
 
@@ -26,8 +27,11 @@ class SQLExecutor(Protocol):
 
 
 class UnavailableSQLExecutor:
+    def __init__(self, reason: str = "NL2SQL 业务数据库未配置。") -> None:
+        self.reason = reason
+
     def execute(self, sql: str, parameters: dict[str, object]) -> QueryResult:
-        raise SQLExecutorUnavailable("NL2SQL 业务数据库未配置。")
+        raise SQLExecutorUnavailable(self.reason)
 
 
 class ReadOnlySQLiteExecutor:
@@ -37,16 +41,48 @@ class ReadOnlySQLiteExecutor:
         self.max_columns = max_columns
         self.timeout_seconds = timeout_seconds
 
+    @classmethod
+    def from_database_url(
+        cls,
+        database_url: str,
+        max_rows: int,
+        max_columns: int,
+        timeout_seconds: int,
+    ) -> "ReadOnlySQLiteExecutor":
+        normalized = (database_url or "").strip()
+        if not normalized:
+            raise SQLExecutorUnavailable("NL2SQL 业务数据库未配置。")
+        if _is_windows_path(normalized):
+            return cls(normalized, max_rows, max_columns, timeout_seconds)
+        parsed = urlparse(normalized)
+        if not parsed.scheme:
+            return cls(normalized, max_rows, max_columns, timeout_seconds)
+        if parsed.scheme != "sqlite":
+            raise SQLExecutorUnavailable("NL2SQL 业务数据库仅支持 SQLite 文件路径或 sqlite:/// URL。")
+        if parsed.netloc not in {"", "localhost"}:
+            raise SQLExecutorUnavailable("NL2SQL SQLite URL 不支持远程主机。")
+        path = unquote(parsed.path)
+        if len(path) >= 3 and path[0] == "/" and path[2] == ":":
+            path = path[1:]
+        if not path:
+            raise SQLExecutorUnavailable("NL2SQL SQLite URL 缺少数据库文件路径。")
+        return cls(path, max_rows, max_columns, timeout_seconds)
+
     def execute(self, sql: str, parameters: dict[str, object]) -> QueryResult:
         normalized = (sql or "").strip()
         if not normalized.upper().startswith(("SELECT", "WITH")) or ";" in normalized.rstrip(";"):
             raise SQLExecutionError("Executor 只允许单条只读 SELECT/WITH SQL。")
+        if not self.database_path.is_file():
+            raise SQLExecutorUnavailable("NL2SQL 业务数据库不可用。")
         try:
             connection = sqlite3.connect(
                 f"file:{self.database_path.resolve().as_posix()}?mode=ro",
                 uri=True,
                 timeout=self.timeout_seconds,
             )
+        except sqlite3.Error as exc:
+            raise SQLExecutorUnavailable("NL2SQL 业务数据库不可用。") from exc
+        try:
             connection.set_authorizer(self._authorizer)
             deadline = time.monotonic() + self.timeout_seconds
             connection.set_progress_handler(lambda: 1 if time.monotonic() >= deadline else 0, 1)
@@ -71,3 +107,7 @@ class ReadOnlySQLiteExecutor:
     def _authorizer(action: int, parameter1: str | None, parameter2: str | None, database: str | None, trigger: str | None) -> int:
         allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION}
         return sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY
+
+
+def _is_windows_path(value: str) -> bool:
+    return len(value) >= 3 and value[0].isalpha() and value[1:3] in {":/", ":\\"}

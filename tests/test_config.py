@@ -22,6 +22,14 @@ def test_nl2sql_runtime_config_reads_only_its_dedicated_database_variable(monkey
     assert config.max_attempts == 3
 
 
+def test_nl2sql_runtime_config_reads_enabled_switch(monkeypatch):
+    monkeypatch.setenv("NL2SQL_ENABLED", "false")
+
+    config = get_nl2sql_runtime_config()
+
+    assert config.enabled is False
+
+
 def test_get_llm_runtime_config_reads_selected_qwen_provider(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "qwen")
     monkeypatch.setenv("QWEN_API_KEY", "test-key")

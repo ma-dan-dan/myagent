@@ -115,7 +115,8 @@ INTENT_MIN_CONFIDENCE = 0.70
 
 
 # NL2SQL 配置：业务库必须单独配置，绝不复用聊天会话 SQLite。
-NL2SQL_ENABLED = True
+NL2SQL_ENABLED_ENV = "NL2SQL_ENABLED"
+DEFAULT_NL2SQL_ENABLED = True
 NL2SQL_DIALECT = "sqlite"
 NL2SQL_DATABASE_URL_ENV = "NL2SQL_DATABASE_URL"
 NL2SQL_MAX_SQL_ATTEMPTS = 3
@@ -175,7 +176,7 @@ def get_intent_llm_runtime_config() -> IntentLLMRuntimeConfig:
 
 def get_nl2sql_runtime_config() -> NL2SQLRuntimeConfig:
     return NL2SQLRuntimeConfig(
-        enabled=NL2SQL_ENABLED,
+        enabled=_read_bool(NL2SQL_ENABLED_ENV, DEFAULT_NL2SQL_ENABLED),
         dialect=NL2SQL_DIALECT,
         database_url=os.getenv(NL2SQL_DATABASE_URL_ENV),
         max_attempts=NL2SQL_MAX_SQL_ATTEMPTS,
@@ -185,3 +186,15 @@ def get_nl2sql_runtime_config() -> NL2SQLRuntimeConfig:
         query_timeout_seconds=NL2SQL_QUERY_TIMEOUT_SECONDS,
         max_sql_length=NL2SQL_MAX_SQL_LENGTH,
     )
+
+
+def _read_bool(env_name: str, default: bool) -> bool:
+    value = os.getenv(env_name)
+    if value is None or not value.strip():
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    raise ValueError(f"{env_name} 必须是 true/false、1/0 或 yes/no。")

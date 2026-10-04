@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.memory.models import TokenUsage
+from app.memory.models import CompactionResult, TokenUsage
 from app.rag.models import SchemaCandidate
 
 
@@ -61,6 +61,10 @@ class NL2SQLState(BaseModel):
     user_message: str = Field(min_length=1, max_length=4000)
     schema_candidates: list[SchemaCandidate] = Field(default_factory=list)
     schema_context: str = ""
+    context_messages: list[dict[str, str]] = Field(default_factory=list)
+    estimated_context_tokens: int = Field(default=0, ge=0)
+    context_window: int = Field(default=0, ge=0)
+    maintenance: CompactionResult = Field(default_factory=CompactionResult)
     sql_draft: SQLDraft | None = None
     validation: SQLValidationResult | None = None
     query_result: QueryResult | None = None

@@ -76,26 +76,7 @@ class ChatService:
     def _finish_success(self, user_id, session_id, prepared, result, route_result):
         chat_usage = result.usage.model_copy(update={"estimated_context_tokens": prepared.estimated_context_tokens, "context_window": prepared.context_window})
         model = str(getattr(self.agent.llm, "model", "unknown") or "unknown")
-        self.session_service.record_usage(user_id, session_id, "chat", model, chat_usage)
-        current_turn = chat_usage
-        if prepared.maintenance.compacted:
-            self.session_service.record_usage(
-                user_id,
-                session_id,
-                "summary",
-                model,
-                prepared.maintenance.summary_usage,
-            )
-            self.session_service.record_usage(
-                user_id,
-                session_id,
-                "memory",
-                model,
-                prepared.maintenance.memory_usage,
-            )
-            self.long_term_memory.upsert(prepared.maintenance.memory_entries)
-            current_turn = current_turn.add(prepared.maintenance.summary_usage).add(prepared.maintenance.memory_usage)
-        usage = self.session_service.get_session_usage(user_id, session_id, current_turn)
+        usage = self._record_success_usage(user_id, session_id, model, chat_usage, prepared.maintenance)
         return ChatResponse(
             session_id=session_id,
             message=result.message,
@@ -105,6 +86,28 @@ class ChatService:
             routed_intent=route_result.routed_intent,
             fallback_reason=route_result.fallback_reason,
         )
+
+    def _record_success_usage(self, user_id, session_id, model, chat_usage, maintenance):
+        self.session_service.record_usage(user_id, session_id, "chat", model, chat_usage)
+        current_turn = chat_usage
+        if maintenance.compacted:
+            self.session_service.record_usage(
+                user_id,
+                session_id,
+                "summary",
+                model,
+                maintenance.summary_usage,
+            )
+            self.session_service.record_usage(
+                user_id,
+                session_id,
+                "memory",
+                model,
+                maintenance.memory_usage,
+            )
+            self.long_term_memory.upsert(maintenance.memory_entries)
+            current_turn = current_turn.add(maintenance.summary_usage).add(maintenance.memory_usage)
+        return self.session_service.get_session_usage(user_id, session_id, current_turn)
 
     def _read_response(self, user_id: str, session_id: str, message: str, route_result: IntentRouteResult) -> ChatResponse:
         if self.schema_linking_service is None:
@@ -132,13 +135,18 @@ class ChatService:
         self.session_service.append_message(user_id, session_id, "user", message)
         self.session_service.append_message(user_id, session_id, "assistant", assistant_message)
         model = str(getattr(self.agent.llm, "model", "unknown") or "unknown")
-        usage = result.usage.model_copy(update={"context_window": self.context_manager.token_manager.context_window})
-        self.session_service.record_usage(user_id, session_id, "chat", model, usage)
+        usage = result.usage.model_copy(
+            update={
+                "estimated_context_tokens": result.estimated_context_tokens,
+                "context_window": result.context_window or self.context_manager.token_manager.context_window,
+            }
+        )
+        session_usage = self._record_success_usage(user_id, session_id, model, usage, result.maintenance)
         sql = result.validation.normalized_sql if result.validation and result.validation.normalized_sql else (result.sql_draft.sql if result.sql_draft else None)
         return ChatResponse(
             session_id=session_id,
             message=assistant_message,
-            usage=self.session_service.get_session_usage(user_id, session_id, usage),
+            usage=session_usage,
             intent_decision=route_result.decision,
             routed_intent=route_result.routed_intent,
             fallback_reason=route_result.fallback_reason,

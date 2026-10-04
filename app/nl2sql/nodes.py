@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from app.agent.adapter import LLMAdapter, LLMResponse
+from app.memory.context_manager import ContextManager
 from app.nl2sql.executor import SQLExecutionError, SQLExecutor, SQLExecutorUnavailable
 from app.nl2sql.models import NL2SQLState, ReflectionDecision, SQLDraft
 from app.nl2sql.prompt import build_gensql_messages, build_reflection_messages
@@ -26,6 +27,24 @@ def schema_linking_node(state: dict[str, Any], schema_linking_service: SchemaLin
     return NL2SQLState.model_validate(update).model_dump()
 
 
+def context_prepare_node(state: dict[str, Any], context_manager: ContextManager | None) -> dict[str, Any]:
+    current = NL2SQLState.model_validate(state)
+    if context_manager is None:
+        return current.model_dump()
+    prepared = context_manager.prepare(
+        current.user_id,
+        current.session_id,
+        current.user_message,
+        extra_context=current.schema_context,
+    )
+    update = current.model_dump()
+    update["context_messages"] = prepared.messages
+    update["estimated_context_tokens"] = prepared.estimated_context_tokens
+    update["context_window"] = prepared.context_window
+    update["maintenance"] = prepared.maintenance.model_dump()
+    return NL2SQLState.model_validate(update).model_dump()
+
+
 def gen_sql_node(state: dict[str, Any], llm: LLMAdapter, dialect: str) -> dict[str, Any]:
     current = NL2SQLState.model_validate(state)
     update = current.model_dump()
@@ -34,7 +53,17 @@ def gen_sql_node(state: dict[str, Any], llm: LLMAdapter, dialect: str) -> dict[s
         return NL2SQLState.model_validate(update).model_dump()
     try:
         response = LLMResponse.model_validate(
-            llm.complete(build_gensql_messages(current.user_message, current.schema_context, dialect, current.validation_error or current.execution_error), tools=[])
+            llm.complete(
+                build_gensql_messages(
+                    current.user_message,
+                    current.schema_context,
+                    dialect,
+                    current.validation_error or current.execution_error,
+                    current.context_messages,
+                    current.reflection.reason if current.reflection else None,
+                ),
+                tools=[],
+            )
         )
         if response.kind != "message" or not response.content:
             raise ValueError("empty SQL draft")
@@ -94,7 +123,18 @@ def reflection_node(state: dict[str, Any], llm: LLMAdapter, dialect: str) -> dic
         summary = f"columns={','.join(current.query_result.columns)}; row_count={current.query_result.row_count}; truncated={current.query_result.truncated}"
     try:
         response = LLMResponse.model_validate(
-            llm.complete(build_reflection_messages(current.user_message, current.schema_context, current.sql_draft.sql, current.validation_error, summary or current.execution_error, dialect), tools=[])
+            llm.complete(
+                build_reflection_messages(
+                    current.user_message,
+                    current.schema_context,
+                    current.sql_draft.sql,
+                    current.validation_error,
+                    summary or current.execution_error,
+                    dialect,
+                    current.context_messages,
+                ),
+                tools=[],
+            )
         )
         if response.kind != "message" or not response.content:
             raise ValueError("empty reflection")

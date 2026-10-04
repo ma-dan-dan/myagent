@@ -29,6 +29,8 @@ class SQLValidator:
             return self._failure("只允许单条只读 SELECT/WITH SQL。")
 
         statement = statements[0]
+        if self._has_projection_wildcard(statement):
+            return self._failure("必须明确选择授权字段。")
         cte_names = {cte.alias_or_name for cte in statement.find_all(exp.CTE)}
         tables = [table for table in statement.find_all(exp.Table) if table.name not in cte_names]
         referenced_tables = sorted({table.name for table in tables})
@@ -66,3 +68,13 @@ class SQLValidator:
     @staticmethod
     def _failure(message: str) -> SQLValidationResult:
         return SQLValidationResult(ok=False, error=message)
+
+    @staticmethod
+    def _has_projection_wildcard(statement: exp.Select) -> bool:
+        for select in statement.find_all(exp.Select):
+            for expression in select.expressions:
+                if isinstance(expression, exp.Star):
+                    return True
+                if isinstance(expression, exp.Column) and expression.name == "*":
+                    return True
+        return False

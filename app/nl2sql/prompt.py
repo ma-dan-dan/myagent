@@ -6,6 +6,8 @@ def build_gensql_messages(
     schema_context: str,
     dialect: str,
     previous_error: str | None,
+    context_messages: list[dict[str, str]] | None = None,
+    reflection_reason: str | None = None,
 ) -> list[dict[str, str]]:
     system = (
         "你是只读 SQL 生成器。只允许生成单条 SELECT/WITH SQL；只能使用给定 Schema；"
@@ -14,9 +16,10 @@ def build_gensql_messages(
     user = (
         f"方言：{dialect}\nSchema：{schema_context}\n问题：{user_message}\n"
         f"上次错误：{previous_error or '无'}\n"
+        f"Reflection 反馈：{(reflection_reason or '无')[:500]}\n"
         "JSON 字段：status、sql、tables、parameters、explanation。"
     )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return _history_messages(context_messages, user_message) + [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 def build_reflection_messages(
@@ -26,6 +29,7 @@ def build_reflection_messages(
     validation_error: str | None,
     execution_summary: str | None,
     dialect: str,
+    context_messages: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
     system = "你是只读 SQL Reflection 器，只能返回 pass、regenerate、clarify 或 reject 的 JSON。"
     user = (
@@ -34,4 +38,13 @@ def build_reflection_messages(
         f"执行摘要：{execution_summary or '无'}\n"
         "JSON 字段：decision、reason。"
     )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return _history_messages(context_messages, user_message) + [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _history_messages(context_messages: list[dict[str, str]] | None, user_message: str) -> list[dict[str, str]]:
+    if not context_messages:
+        return []
+    messages = list(context_messages)
+    if messages and messages[-1].get("role") == "user" and messages[-1].get("content") == user_message:
+        messages.pop()
+    return messages

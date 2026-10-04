@@ -53,3 +53,28 @@ def test_readonly_executor_interrupts_query_after_timeout(tmp_path):
 
     with pytest.raises(SQLExecutionError, match="执行失败"):
         executor.execute("SELECT output_quantity FROM production_output", {})
+
+
+def test_sqlite_url_is_normalized_to_a_file_path(tmp_path):
+    database_path = make_database(tmp_path)
+
+    executor = ReadOnlySQLiteExecutor.from_database_url(
+        f"sqlite:///{database_path.as_posix()}",
+        max_rows=100,
+        max_columns=30,
+        timeout_seconds=5,
+    )
+
+    assert executor.database_path == database_path
+
+
+def test_unknown_database_url_scheme_is_rejected():
+    with pytest.raises(SQLExecutorUnavailable, match="仅支持 SQLite"):
+        ReadOnlySQLiteExecutor.from_database_url("postgresql://localhost/business", 100, 30, 5)
+
+
+def test_missing_database_file_raises_unavailable(tmp_path):
+    executor = ReadOnlySQLiteExecutor(tmp_path / "missing.sqlite3", 100, 30, 5)
+
+    with pytest.raises(SQLExecutorUnavailable, match="不可用"):
+        executor.execute("SELECT 1", {})

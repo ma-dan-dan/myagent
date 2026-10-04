@@ -37,8 +37,8 @@ from app.rag.indexer import RagColumnRecord, RagSchemaRecord, SchemaIndexer
 from app.rag.retriever import SchemaRetriever
 from app.rag.service import SchemaLinkingService
 from app.rag.vector_store import LanceVectorStore
-from app.nl2sql.executor import ReadOnlySQLiteExecutor, UnavailableSQLExecutor
-from app.nl2sql.graph import NL2SQLGraphService
+from app.nl2sql.executor import ReadOnlySQLiteExecutor, SQLExecutorUnavailable, UnavailableSQLExecutor
+from app.nl2sql.graph import NL2SQLGraphService, UnavailableNL2SQLGraphService
 from app.nl2sql.validator import SQLValidator
 
 
@@ -113,25 +113,33 @@ def create_app(
 
     if nl2sql_graph_service is None:
         nl2sql_config = get_nl2sql_runtime_config()
-        executor = (
-            ReadOnlySQLiteExecutor(
-                nl2sql_config.database_url,
-                nl2sql_config.max_rows,
-                nl2sql_config.max_columns,
-                nl2sql_config.query_timeout_seconds,
-            )
-            if nl2sql_config.database_url
-            else UnavailableSQLExecutor()
-        )
-        nl2sql_graph_service = NL2SQLGraphService(
-            schema_linking_service,
-            agent.llm,
-            SQLValidator(nl2sql_config.dialect, nl2sql_config.max_rows, nl2sql_config.max_sql_length),
-            executor,
-            nl2sql_config.dialect,
-            nl2sql_config.max_attempts,
-            nl2sql_config.max_reflections,
-        )
+        if not nl2sql_config.enabled:
+            nl2sql_graph_service = UnavailableNL2SQLGraphService("NL2SQL 功能未启用。")
+        else:
+            try:
+                executor = (
+                    ReadOnlySQLiteExecutor.from_database_url(
+                        nl2sql_config.database_url,
+                        nl2sql_config.max_rows,
+                        nl2sql_config.max_columns,
+                        nl2sql_config.query_timeout_seconds,
+                    )
+                    if nl2sql_config.database_url
+                    else UnavailableSQLExecutor()
+                )
+            except SQLExecutorUnavailable as exc:
+                nl2sql_graph_service = UnavailableNL2SQLGraphService(str(exc))
+            else:
+                nl2sql_graph_service = NL2SQLGraphService(
+                    schema_linking_service,
+                    agent.llm,
+                    SQLValidator(nl2sql_config.dialect, nl2sql_config.max_rows, nl2sql_config.max_sql_length),
+                    executor,
+                    nl2sql_config.dialect,
+                    nl2sql_config.max_attempts,
+                    nl2sql_config.max_reflections,
+                    context,
+                )
 
 
     # 5、将 ChatService 实例和 web_path 添加到 FastAPI 应用的状态中，以便在应用的其他部分访问。然后将 chat_router 包含到应用中，以处理与聊天相关的 API 路由。最后，定义一个根路径的 GET 请求处理函数 index，用于返回 web_path 指定的 HTML 文件作为响应。

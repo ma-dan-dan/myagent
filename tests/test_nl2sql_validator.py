@@ -46,3 +46,35 @@ def test_existing_limit_is_capped():
 
     assert result.ok is True
     assert "LIMIT 100" in result.normalized_sql.upper()
+
+
+def test_projection_wildcard_is_rejected_by_column_allowlist():
+    result = SQLValidator().validate(
+        "SELECT * FROM production_output",
+        {"production_output"},
+        {"production_output": {"output_quantity"}},
+    )
+
+    assert result.ok is False
+    assert result.error == "必须明确选择授权字段。"
+
+
+def test_qualified_projection_wildcard_is_rejected():
+    result = SQLValidator().validate(
+        "SELECT production_output.* FROM production_output",
+        {"production_output"},
+        {"production_output": {"output_quantity"}},
+    )
+
+    assert result.ok is False
+    assert result.error == "必须明确选择授权字段。"
+
+
+def test_count_wildcard_is_allowed_without_returning_all_columns():
+    result = SQLValidator().validate(
+        "SELECT COUNT(*) FROM production_output",
+        {"production_output"},
+        {"production_output": {"output_quantity"}},
+    )
+
+    assert result.ok is True
