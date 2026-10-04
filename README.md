@@ -17,9 +17,9 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 在现有聊天入口前增加 `chat`、`data_operation`、`nl2sql` 三类意图识别。
 - `data_operation` 携带 `read`、`create`、`update`、`delete` 或 `unknown` 预留动作字段；当前数据类意图只返回稳定占位响应。
 - 通过 `INTENT_PROVIDER` 切换 `fake`、`llm` 和 `jev` 分类器，三者统一输出 `IntentDecision`。
-- `llm` 分类器复用现有 LLMAdapter，要求 JSON 输出并经过 Pydantic 校验；低置信度或非法分类结果降级为普通聊天。
+- `llm` 分类器复用现有 LLMAdapter，要求 JSON 输出并经过 Pydantic 校验；低置信度或非法分类结果路由到普通聊天。
 - `jev` 分类器使用官方 `typesafe-sdk`，固定模型为 `typesafe/jev-1.13`，只从 `TYPESAFE_API_KEY` 读取密钥。
-- 每次分类记录 provider、模型、置信度、延迟和 Token 用量，并提供 `GET /api/v1/intent-metrics` 指标接口。
+- 每次分类保留原始 provider、模型、意图、置信度、延迟和 Token 用量；低置信度只改变实际路由，并提供 `GET /api/v1/intent-metrics` 双口径指标接口。
 
 PowerShell 配置示例：
 
@@ -39,7 +39,7 @@ $env:INTENT_PROVIDER = "fake"
 .\.venv\Scripts\python.exe -m app.evaluation.intent_benchmark
 ```
 
-Jev 的自动化测试使用 mock 客户端，不访问在线服务；实际在线调用需要自行配置 `TYPESAFE_API_KEY`。
+Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，不作为 Jev 或普通 LLM 的准确率比较基线。Jev 的自动化测试使用 mock 客户端，不访问在线服务；实际在线调用需要自行配置 `TYPESAFE_API_KEY`。
 
 ## 架构概览
 
@@ -48,11 +48,19 @@ Web / API Request
         ↓
 ChatService
         ↓
-ContextManager → ChatAgent → LLMAdapter
-                    ↓             ↓
-              ToolRegistry    LiteLLM Provider
-                    ↓
-             SchemaSearchTool → SchemaCatalog
+IntentRouter
+  ├─ FakeIntentClassifier
+  ├─ JevIntentClassifier
+  └─ LLMIntentClassifier
+        ↓
+  ├─ chat
+  │    ↓
+  │  ContextManager → ChatAgent → ToolRegistry → SchemaSearchTool
+  │                       ↓
+  │                   LLMAdapter → LiteLLM Provider
+  │
+  ├─ data_operation → 当前测试占位响应
+  └─ nl2sql         → 当前测试占位响应
 ```
 
 ## 快速启动
@@ -119,5 +127,6 @@ web/           简单前端页面
 - `docs/v2_llm-adapter-multi-provider.md`：多模型厂商适配。
 - `docs/v3_context-token-memory-management.md`：上下文、Token 与长期记忆。
 - `docs/v4_intent-recognition.md`：意图识别、分类器切换与评测。
+- `docs/v4_intent-recognition-fix.md`：原始分类结果、实际路由结果与指标归因修复。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。
