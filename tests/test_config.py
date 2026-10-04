@@ -4,6 +4,7 @@ from app.agent.adapter import LLMConfigurationError
 from app.agent.llm_factory import LLMAdapterFactory
 from app.config import (
     INTENT_LLM_MODEL_CONFIGS,
+    get_rag_embedding_runtime_config,
     get_intent_llm_runtime_config,
     get_intent_runtime_config,
     get_llm_runtime_config,
@@ -96,3 +97,26 @@ def test_missing_provider_key_keeps_existing_error_message(monkeypatch):
 
     with pytest.raises(LLMConfigurationError, match="QWEN_API_KEY"):
         adapter.complete([], [])
+
+
+def test_rag_embedding_config_is_qwen_and_reads_only_qwen_key(monkeypatch):
+    monkeypatch.setenv("QWEN_API_KEY", "rag-key")
+
+    config = get_rag_embedding_runtime_config()
+
+    assert config.provider == "qwen"
+    assert config.model == "text-embedding-v3"
+    assert config.litellm_model == "dashscope/text-embedding-v3"
+    assert config.api_key == "rag-key"
+    assert config.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def test_rag_embedding_config_does_not_use_chat_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "chat-key")
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
+
+    config = get_rag_embedding_runtime_config()
+
+    assert config.provider == "qwen"
+    assert config.api_key is None

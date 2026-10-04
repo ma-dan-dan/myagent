@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "chat.sqlite3"
 DEFAULT_CATALOG_PATH = PROJECT_ROOT / "data" / "schema_catalog.json"
 DEFAULT_WEB_PATH = PROJECT_ROOT / "web" / "index.html"
+DEFAULT_RAG_INDEX_PATH = PROJECT_ROOT / "data" / "rag_index"
 
 
 @dataclass(frozen=True)
@@ -48,10 +49,17 @@ LLM_PROVIDER_CONFIGS = {
 }
 
 
+# RAG Embedding 配置：固定使用 Qwen 向量模型，密钥沿用 QWEN_API_KEY。
+RAG_EMBEDDING_PROVIDER = "qwen"
+RAG_EMBEDDING_MODEL = "text-embedding-v3"
+RAG_EMBEDDING_LITELLM_MODEL = "dashscope/text-embedding-v3"
+RAG_EMBEDDING_BASE_URL = QWEN_BASE_URL
+RAG_EMBEDDING_API_KEY_ENV = QWEN_API_KEY_ENV
+
+
 # 意图识别配置：定义分类器默认 Provider、Jev 密钥变量名和固定模型。
 DEFAULT_INTENT_PROVIDER = "llm"
 INTENT_PROVIDER_ENV = "INTENT_PROVIDER"
-
 
 TYPESAFE_API_KEY_ENV = "TYPESAFE_API_KEY"
 JEV_MODEL = "typesafe/jev-1.13"
@@ -61,6 +69,15 @@ JEV_MODEL = "typesafe/jev-1.13"
 class IntentRuntimeConfig:
     provider: str
     typesafe_api_key: str | None
+
+
+@dataclass(frozen=True)
+class RagEmbeddingRuntimeConfig:
+    provider: str
+    api_key: str | None
+    model: str
+    litellm_model: str
+    base_url: str | None
 
 
 # 意图 LLM 配置：允许意图分类使用独立 Provider，未配置时跟随主聊天模型 Provider。
@@ -94,6 +111,16 @@ def get_llm_runtime_config() -> LLMRuntimeConfig:
         api_key=os.getenv(provider_config.api_key_env),
         model=provider_config.model,
         base_url=provider_config.base_url,
+    )
+
+
+def get_rag_embedding_runtime_config() -> RagEmbeddingRuntimeConfig:
+    return RagEmbeddingRuntimeConfig(
+        provider=RAG_EMBEDDING_PROVIDER,
+        api_key=os.getenv(RAG_EMBEDDING_API_KEY_ENV),
+        model=RAG_EMBEDDING_MODEL,
+        litellm_model=RAG_EMBEDDING_LITELLM_MODEL,
+        base_url=RAG_EMBEDDING_BASE_URL,
     )
 
 

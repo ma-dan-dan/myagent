@@ -13,6 +13,7 @@ from app.api.chat import router as chat_router
 from app.config import (
     DEFAULT_CATALOG_PATH,
     DEFAULT_DB_PATH,
+    DEFAULT_RAG_INDEX_PATH,
     DEFAULT_WEB_PATH,
     INTENT_MIN_CONFIDENCE,
 )
@@ -29,6 +30,12 @@ from app.services.chat_service import ChatService
 from app.storage.schema_catalog import SchemaCatalog
 from app.storage.session_service import SessionService
 from app.tools.schema_search import SchemaSearchTool
+from app.rag.context_packer import ContextPacker
+from app.rag.embedding import QwenEmbeddingAdapter
+from app.rag.indexer import RagColumnRecord, RagSchemaRecord, SchemaIndexer
+from app.rag.retriever import SchemaRetriever
+from app.rag.service import SchemaLinkingService
+from app.rag.vector_store import LanceVectorStore
 
 
 def create_app(
@@ -42,6 +49,7 @@ def create_app(
     token_manager: TokenManager | None = None,
     intent_classifier: IntentClassifier | None = None,
     intent_llm_adapter: LLMAdapter | None = None,
+    schema_linking_service: SchemaLinkingService | None = None,
 ) -> FastAPI:
 
     # 1、 创建 FastAPI 应用实例，并确定工作空间的路径，如果没有提供 workspace_root，则使用当前文件的父目录作为默认路径。
@@ -75,6 +83,19 @@ def create_app(
         manager,
         policy,
     )
+    if schema_linking_service is None:
+        records = [
+            RagSchemaRecord(
+                table_id=table.table_name,
+                table_name=table.table_name,
+                ddl="CREATE TABLE " + table.table_name + " (" + ", ".join(f"{column.column_name} {column.data_type}" for column in table.columns) + ");",
+                columns=[RagColumnRecord(column_name=column.column_name, data_type=column.data_type, sample_values=[f"sample-{column.column_name}"]) for column in table.columns],
+            )
+            for table in catalog._tables
+        ]
+        embedding = QwenEmbeddingAdapter.from_env()
+        store = LanceVectorStore(DEFAULT_RAG_INDEX_PATH)
+        schema_linking_service = SchemaLinkingService(SchemaIndexer(embedding, store), SchemaRetriever(embedding, store), ContextPacker(manager), records)
 
     if intent_classifier is None:
         try:
@@ -85,7 +106,7 @@ def create_app(
 
 
     # 5、将 ChatService 实例和 web_path 添加到 FastAPI 应用的状态中，以便在应用的其他部分访问。然后将 chat_router 包含到应用中，以处理与聊天相关的 API 路由。最后，定义一个根路径的 GET 请求处理函数 index，用于返回 web_path 指定的 HTML 文件作为响应。
-    app.state.chat_service = ChatService(session_service, agent, context, memory, intent_router)
+    app.state.chat_service = ChatService(session_service, agent, context, memory, intent_router, schema_linking_service)
     app.state.web_path = Path(web_path)
     app.include_router(chat_router)
 

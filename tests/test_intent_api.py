@@ -7,6 +7,7 @@ from app.agent.adapter import LLMResponse
 from app.intent.classifier import IntentClassificationError
 from app.intent.fake_classifier import FakeIntentClassifier
 from app.main import create_app
+from app.rag.service import SchemaLinkingResult
 
 
 class FakeLLM:
@@ -15,8 +16,10 @@ class FakeLLM:
 
     def __init__(self, responses):
         self.responses = list(responses)
+        self.calls = []
 
     def complete(self, messages, tools):
+        self.calls.append((messages, tools))
         return self.responses.pop(0)
 
 
@@ -71,15 +74,62 @@ def test_create_app_uses_injected_intent_llm_separately_from_chat_llm(tmp_path, 
     assert response.json()["intent_decision"]["model"] == "intent-model"
 
 
-def test_data_operation_returns_stable_placeholder(tmp_path):
-    classifier = FakeIntentClassifier.for_result("查今天产量", "data_operation", "read", 1.0)
+def test_data_operation_create_returns_stable_placeholder(tmp_path):
+    classifier = FakeIntentClassifier.for_result("新增产量", "data_operation", "create", 1.0)
     client = make_client(tmp_path, classifier)
 
-    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "查今天产量"})
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "新增产量"})
 
     assert response.status_code == 200
-    assert response.json()["intent_decision"]["data_action"] == "read"
+    assert response.json()["intent_decision"]["data_action"] == "create"
     assert "数据查询意图" in response.json()["message"]
+
+
+def test_data_read_uses_schema_linking_context_without_tools(tmp_path):
+    class FakeSchemaLinkingService:
+        def search(self, message):
+            return SchemaLinkingResult(
+                status="ok",
+                context="<schema_evidence table=\"production_output\">CREATE TABLE production_output ();</schema_evidence>",
+            )
+
+    classifier = FakeIntentClassifier.for_result("查产量", "data_operation", "read", 1.0)
+    chat_llm = FakeLLM([LLMResponse.message("production_output 包含产量字段。")])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=chat_llm,
+            intent_classifier=classifier,
+            schema_linking_service=FakeSchemaLinkingService(),
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "查产量"})
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "production_output 包含产量字段。"
+    assert chat_llm.calls[0][1] == []
+
+
+def test_data_read_returns_503_when_qwen_embedding_key_is_missing(tmp_path, monkeypatch):
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
+    classifier = FakeIntentClassifier.for_result("查产量", "data_operation", "read", 1.0)
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=FakeLLM([]),
+            intent_classifier=classifier,
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "查产量"})
+
+    assert response.status_code == 503
+    assert "QWEN_API_KEY" in response.json()["detail"]
 
 
 def test_nl2sql_returns_stable_placeholder(tmp_path):

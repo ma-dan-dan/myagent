@@ -10,6 +10,7 @@ from app.memory.long_term_memory import LongTermMemoryStore
 from app.memory.models import TokenUsage
 from app.schemas.chat import ChatResponse, IntentMetrics, ToolEvent
 from app.storage.session_service import SessionService
+from app.rag.service import SchemaLinkingService
 
 
 class ChatService:
@@ -22,12 +23,14 @@ class ChatService:
         context_manager: ContextManager,
         long_term_memory: LongTermMemoryStore,
         intent_router: IntentRouter,
+        schema_linking_service: SchemaLinkingService | None = None,
     ) -> None:
         self.session_service = session_service
         self.agent = agent
         self.context_manager = context_manager
         self.long_term_memory = long_term_memory
         self.intent_router = intent_router
+        self.schema_linking_service = schema_linking_service
 
     def chat(self, user_id: str, session_id: str | None, message: str) -> ChatResponse:
         route_result = self.intent_router.route(message)
@@ -40,6 +43,8 @@ class ChatService:
             route_result.routed_intent,
             route_result.fallback_reason,
         )
+        if route_result.routed_intent is IntentName.DATA_OPERATION and route_result.decision.data_action and route_result.decision.data_action.value == "read":
+            return self._read_response(user_id, active_session_id, message, route_result)
         if route_result.routed_intent is not IntentName.CHAT:
             return self._placeholder_response(user_id, active_session_id, message, route_result)
 
@@ -96,6 +101,26 @@ class ChatService:
             routed_intent=route_result.routed_intent,
             fallback_reason=route_result.fallback_reason,
         )
+
+    def _read_response(self, user_id: str, session_id: str, message: str, route_result: IntentRouteResult) -> ChatResponse:
+        if self.schema_linking_service is None:
+            raise RuntimeError("RAG 服务未配置。")
+        linked = self.schema_linking_service.search(message)
+        if linked.status == "empty":
+            return self._stable_response(user_id, session_id, message, route_result, "未找到匹配的 Schema，请补充业务对象或字段名称。")
+        if linked.status == "ambiguous":
+            return self._stable_response(user_id, session_id, message, route_result, "匹配到多个可能的 Schema，请补充更具体的表、字段或业务范围。")
+        prepared = self.context_manager.prepare(user_id, session_id, message, extra_context=linked.context)
+        self.session_service.append_message(user_id, session_id, "user", message)
+        result = self.agent.run(prepared.messages, tools=[])
+        self.session_service.append_message(user_id, session_id, "assistant", result.message)
+        usage = self.session_service.get_session_usage(user_id, session_id, result.usage.model_copy(update={"estimated_context_tokens": prepared.estimated_context_tokens, "context_window": prepared.context_window}))
+        return ChatResponse(session_id=session_id, message=result.message, usage=usage, intent_decision=route_result.decision, routed_intent=route_result.routed_intent, fallback_reason=route_result.fallback_reason)
+
+    def _stable_response(self, user_id: str, session_id: str, message: str, route_result: IntentRouteResult, assistant_message: str) -> ChatResponse:
+        self.session_service.append_message(user_id, session_id, "user", message)
+        self.session_service.append_message(user_id, session_id, "assistant", assistant_message)
+        return ChatResponse(session_id=session_id, message=assistant_message, usage=self.session_service.get_session_usage(user_id, session_id, TokenUsage()), intent_decision=route_result.decision, routed_intent=route_result.routed_intent, fallback_reason=route_result.fallback_reason)
 
     def intent_metrics(self, user_id: str, provider: str | None = None) -> IntentMetrics:
         return IntentMetrics.model_validate(self.session_service.get_intent_metrics(user_id, provider))

@@ -42,7 +42,7 @@ class ContextManager:
         self.token_manager = token_manager
         self.policy = policy or token_manager.policy
 
-    def prepare(self, user_id: str, session_id: str, current_message: str) -> PreparedContext:
+    def prepare(self, user_id: str, session_id: str, current_message: str, extra_context: str | None = None) -> PreparedContext:
         summary = self.session_service.get_summary(user_id, session_id)
         rules = self.project_context.as_system_message()
         memory_message = self.long_term_memory.as_system_message()
@@ -51,7 +51,7 @@ class ContextManager:
         summary_succeeded = False
 
         while True:
-            fixed_messages = self._build_fixed_messages(rules, memory_message, summary)
+            fixed_messages = self._build_fixed_messages(rules, memory_message, summary, extra_context)
             fixed_messages = self._fit_fixed_context(fixed_messages)
             fixed_tokens = self.token_manager.estimate(fixed_messages)
             current_tokens = self.token_manager.estimate([{"role": "user", "content": current_message}])
@@ -157,6 +157,7 @@ class ContextManager:
         rules: dict[str, str] | None,
         memory_message: dict[str, str] | None,
         summary: Any,
+        extra_context: str | None,
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = [{"role": "system", "content": FIXED_SYSTEM_PROMPT}]
         if rules:
@@ -165,6 +166,8 @@ class ContextManager:
             messages.append(memory_message)
         if summary:
             messages.append({"role": "system", "content": f"<conversation_summary>{summary.summary}</conversation_summary>"})
+        if extra_context:
+            messages.append({"role": "system", "content": extra_context})
         return messages
 
     def _select_recent_messages(self, messages: list[Any], fixed_tokens: int, current_tokens: int) -> tuple[list[Any], list[Any]]:

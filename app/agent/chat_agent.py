@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agent.adapter import LLMAdapter, LLMResponse, LLMServiceUnavailable
+from app.agent.adapter import LLMAdapter, LLMResponse, LLMServiceUnavailable, ToolSpec
 from app.agent.tool_registry import ToolRegistry
 from app.memory.models import TokenUsage
 from app.schemas.chat import SearchSchemaInput, ToolEvent
@@ -34,14 +34,15 @@ class ChatAgent:
         self.max_model_calls = max_model_calls
         self.max_tool_calls = max_tool_calls
 
-    def run(self, messages: list[dict[str, Any]]) -> AgentResult:
+    def run(self, messages: list[dict[str, Any]], tools: list[ToolSpec] | None = None) -> AgentResult:
         working_messages = [dict(message) for message in messages]
         events: list[ToolEvent] = []
         usage = TokenUsage()
+        available_tools = self.tool_registry.specs() if tools is None else tools
 
         for _ in range(self.max_model_calls):
             try:
-                response = self.llm.complete(working_messages, self.tool_registry.specs())
+                response = self.llm.complete(working_messages, available_tools)
                 response = LLMResponse.model_validate(response)
                 if response.usage is not None:
                     usage = usage.add(response.usage)
@@ -54,6 +55,9 @@ class ChatAgent:
                 if response.content:
                     return AgentResult(message=response.content, tool_events=events, usage=usage)
                 return AgentResult(message="模型返回了空回复，请换一种问法。", tool_events=events, usage=usage)
+
+            if not available_tools:
+                return AgentResult(message="模型请求了不可用的工具，本轮无法继续。", tool_events=events, usage=usage)
 
             if len(events) >= self.max_tool_calls:
                 return AgentResult(message="本轮工具调用已达到上限，请稍后换一种问法。", tool_events=events, usage=usage)

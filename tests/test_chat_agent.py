@@ -145,3 +145,12 @@ def test_agent_aggregates_actual_usage_for_each_model_call(catalog_path):
     assert result.usage.input_tokens == 50
     assert result.usage.output_tokens == 12
     assert result.usage.total_tokens == 62
+
+
+def test_agent_uses_explicit_empty_tools_without_entering_tool_loop(catalog_path):
+    fake = FakeLLM([LLMResponse.message("根据召回证据，production_output 是相关表。")])
+
+    result = build_agent(catalog_path, fake).run([{"role": "user", "content": "查产量"}], tools=[])
+
+    assert result.message.startswith("根据召回证据")
+    assert fake.calls[0]["tools"] == []

@@ -8,7 +8,7 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 按 `user_id + session_id` 隔离会话，持久化用户消息、助手消息、工具事件、会话摘要和模型用量。
 - 通过 `ChatAgent` 实现轻量 Agent Loop：模型可请求工具，后端执行工具后将结果回填给模型，再获取最终回答。
 - 通过 `ToolRegistry` 管理工具白名单；当前已接入 `search_schema` 工具。
-- 使用本地 `data/schema_catalog.json` 提供表名、字段名、类型和业务说明的只读检索。
+- 对 `data_operation/read` 使用 DDL 与脱敏 SampleValue 的双路向量召回；RAG 只提供 Schema 证据，不执行 SQL。
 - 使用 LiteLLM 接入 OpenAI、DeepSeek、Qwen 三类模型，并保留可注入的 Fake LLM 测试方式。
 - 使用滑动窗口、会话摘要、Token 估算和 `MEMORY.md` 管理会话上下文与长期项目记忆。
 
@@ -42,22 +42,9 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 
 ## 架构概览
 
-```text
-Web / API Request
-        ↓
-ChatService → IntentRouter
-                ├─ FakeIntentClassifier
-                ├─ JevIntentClassifier
-                └─ LLMIntentClassifier
-                         ↓
-                    IntentLLMAdapter → LiteLLM Provider
-                         ↓
-  ├─ chat → ContextManager → ChatAgent → ToolRegistry → SchemaSearchTool
-  │                              ↓
-  │                         Chat LLMAdapter → LiteLLM Provider
-  ├─ data_operation → 当前测试占位响应
-  └─ nl2sql         → 当前测试占位响应
-```
+![MyAgent 当前架构与 V6 RAG 目标链路](docs/images/myagent-architecture.svg)
+
+图中实线表示当前已接入链路；`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 融合，再以 `tools=[]` 交由 ChatAgent 一次回答。
 
 ## 配置位置
 
@@ -76,6 +63,7 @@ ChatService → IntentRouter
 | `TYPESAFE_API_KEY` | Jev 意图分类器 API Key，仅 `INTENT_PROVIDER=jev` 时使用。 |
 
 主聊天和意图模型的默认模型均在 `app/config.py` 的 `LLM_PROVIDER_CONFIGS` 中维护：OpenAI 为 `gpt-4o-mini`，DeepSeek 为 `deepseek-flash`，Qwen 为 `deepseek-v4.1-flash`。各 Provider 的固定 Base URL 也在该文件中维护：DeepSeek 为 `https://api.deepseek.com`，Qwen 为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，OpenAI 使用 LiteLLM 默认地址。
+RAG 固定使用 Qwen `text-embedding-v3` 与同一个 `QWEN_API_KEY`；DDL 和 SampleValue 分别索引到本地 LanceDB，融合后的少量证据会计入上下文预算后再交给主聊天模型，不进入 Agent Tool Loop。
 
 ## 快速启动
 
