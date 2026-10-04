@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
-  <title id="title">MyAgent 当前架构与 V7 RAG 和 LangGraph NL2SQL 链路</title>
-  <desc id="desc">展示请求、意图识别、V6 DDL 与 SampleValue 双路召回，以及 V7 LangGraph 只读 NL2SQL 工作流之间的关系。</desc>
+  <title id="title">MyAgent 当前架构与 V7 Fix RAG 和 LangGraph NL2SQL 链路</title>
+  <desc id="desc">展示请求、意图识别、V6 DDL 与 SampleValue 双路召回，以及接入 ContextPrepare、会话记忆和只读 SQL 安全边界的 V7 LangGraph NL2SQL 工作流。</desc>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#f8fbff"/>
@@ -53,8 +53,8 @@
   </defs>
 
   <rect width="1600" height="1120" fill="url(#background)"/>
-  <text x="70" y="62" class="title">MyAgent 当前架构与 V7 RAG + LangGraph NL2SQL 链路</text>
-  <text x="70" y="91" class="subtitle">全部为当前已接入链路　·　橙色模块表示 Schema RAG、只读 SQL 与安全边界</text>
+  <text x="70" y="62" class="title">MyAgent 当前架构与 V7 Fix RAG + LangGraph NL2SQL 链路</text>
+  <text x="70" y="91" class="subtitle">全部为当前已接入链路　·　橙色模块表示 Schema RAG、会话上下文、只读 SQL 与安全边界</text>
 
   <rect x="630" y="120" width="340" height="64" class="box current"/>
   <text x="800" y="148" text-anchor="middle" class="label">Web / API Request</text>
@@ -103,8 +103,8 @@
 
   <rect x="1110" y="590" width="410" height="112" class="box rag"/>
   <text x="1315" y="625" text-anchor="middle" class="label">nl2sql · LangGraph</text>
-  <text x="1315" y="651" text-anchor="middle" class="small">SchemaLinking → GenSQL → ValidateSQL</text>
-  <text x="1315" y="676" text-anchor="middle" class="small">Execute → Reflection → Output</text>
+  <text x="1315" y="651" text-anchor="middle" class="small">SchemaLinking → ContextPrepare → GenSQL</text>
+  <text x="1315" y="676" text-anchor="middle" class="small">ValidateSQL → Execute → Reflection → Output</text>
 
   <path d="M800 525 L285 590" class="line"/>
   <path d="M800 525 L800 590" class="ragLine"/>
