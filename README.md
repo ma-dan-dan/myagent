@@ -47,9 +47,9 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 
 ## 架构概览
 
-![MyAgent 当前架构与 V7 RAG 和 LangGraph NL2SQL 链路](docs/images/myagent-architecture.svg)
+![MyAgent 当前架构：意图路由、Agentic Chat、DDL 与 SampleValue RAG、会话记忆和 LangGraph NL2SQL](docs/images/myagent-architecture.svg)
 
-图中全部为当前已接入链路。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；`nl2sql` 进入独立 LangGraph，在 SchemaLinking 后先执行 ContextPrepare，再只能通过校验后的专用只读 SQLExecutor 访问业务库。
+图从上到下展示请求入口、意图路由、三条业务分支和共享基础设施；下方分别展开 V6 RAG 与 V7 NL2SQL 图。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；`nl2sql` 在 SchemaLinking 后先执行 ContextPrepare，并只通过校验后的专用只读 SQLExecutor 访问业务库。
 
 ## 配置位置
 

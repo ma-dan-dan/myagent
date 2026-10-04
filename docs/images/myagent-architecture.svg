@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1380" viewBox="0 0 1600 1380" role="img" aria-labelledby="title desc">
   <title id="title">MyAgent 当前架构与 V7 Fix RAG 和 LangGraph NL2SQL 链路</title>
-  <desc id="desc">展示请求、意图识别、V6 DDL 与 SampleValue 双路召回，以及接入 ContextPrepare、会话记忆和只读 SQL 安全边界的 V7 LangGraph NL2SQL 工作流。</desc>
+  <desc id="desc">展示 FastAPI 请求、意图路由、Agentic Chat、DDL 与 SampleValue RAG，以及具备上下文、校验、只读执行和反思回环的 V7 LangGraph NL2SQL 工作流。</desc>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#f8fbff"/>
@@ -52,9 +52,9 @@
     </style>
   </defs>
 
-  <rect width="1600" height="1120" fill="url(#background)"/>
+  <rect width="1600" height="1380" fill="url(#background)"/>
   <text x="70" y="62" class="title">MyAgent 当前架构与 V7 Fix RAG + LangGraph NL2SQL 链路</text>
-  <text x="70" y="91" class="subtitle">全部为当前已接入链路　·　橙色模块表示 Schema RAG、会话上下文、只读 SQL 与安全边界</text>
+  <text x="70" y="91" class="subtitle">全部为当前已接入链路　·　灰蓝为服务编排，橙色为 RAG / NL2SQL，紫色为会话与模型基础设施</text>
 
   <rect x="630" y="120" width="340" height="64" class="box current"/>
   <text x="800" y="148" text-anchor="middle" class="label">Web / API Request</text>
@@ -91,20 +91,23 @@
   <text x="110" y="548" class="section">ROUTING</text>
   <line x1="110" y1="560" x2="1490" y2="560" class="divider"/>
 
-  <rect x="80" y="590" width="410" height="112" class="box current"/>
+  <rect x="80" y="590" width="410" height="140" class="box current"/>
   <text x="285" y="625" text-anchor="middle" class="label">chat</text>
-  <text x="285" y="651" text-anchor="middle" class="small">ContextManager</text>
-  <text x="285" y="676" text-anchor="middle" class="small">→ ChatAgent → Chat LLMAdapter</text>
+  <text x="285" y="651" text-anchor="middle" class="small">ContextManager → ChatAgent</text>
+  <text x="285" y="676" text-anchor="middle" class="small">Chat LLMAdapter ↔ ToolRegistry</text>
+  <text x="285" y="704" text-anchor="middle" class="tiny">Agent Loop · search_schema Tool</text>
 
-  <rect x="595" y="590" width="410" height="112" class="box rag"/>
+  <rect x="595" y="590" width="410" height="140" class="box rag"/>
   <text x="800" y="625" text-anchor="middle" class="label">data_operation / read</text>
-  <text x="800" y="651" text-anchor="middle" class="small">SchemaLinkingService</text>
-  <text x="800" y="676" text-anchor="middle" class="small">→ RRF Context → ChatAgent(tools=[])</text>
+  <text x="800" y="651" text-anchor="middle" class="small">SchemaLinkingService → RRF Context</text>
+  <text x="800" y="676" text-anchor="middle" class="small">ContextManager → ChatAgent(tools=[])</text>
+  <text x="800" y="704" text-anchor="middle" class="tiny">一次主模型回答 · 不进入 Tool Loop</text>
 
-  <rect x="1110" y="590" width="410" height="112" class="box rag"/>
+  <rect x="1110" y="590" width="410" height="140" class="box rag"/>
   <text x="1315" y="625" text-anchor="middle" class="label">nl2sql · LangGraph</text>
-  <text x="1315" y="651" text-anchor="middle" class="small">SchemaLinking → ContextPrepare → GenSQL</text>
-  <text x="1315" y="676" text-anchor="middle" class="small">ValidateSQL → Execute → Reflection → Output</text>
+  <text x="1315" y="651" text-anchor="middle" class="small">SchemaLinking → ContextPrepare</text>
+  <text x="1315" y="676" text-anchor="middle" class="small">GenSQL ↔ Reflection → 安全输出</text>
+  <text x="1315" y="704" text-anchor="middle" class="tiny">独立只读 SQLite · 不使用 Chat SQLite</text>
 
   <path d="M800 525 L285 590" class="line"/>
   <path d="M800 525 L800 590" class="ragLine"/>
@@ -133,8 +136,8 @@
   <text x="1300" y="830" text-anchor="middle" class="small">Token Budget</text>
   <text x="1300" y="850" text-anchor="middle" class="tiny">无法容纳 → HTTP 413</text>
 
-  <path d="M800 702 L700 770" class="ragLine"/>
-  <path d="M800 702 L900 770" class="ragLine"/>
+  <path d="M800 730 L700 770" class="ragLine"/>
+  <path d="M800 730 L900 770" class="ragLine"/>
   <path d="M790 815 L1010 815" class="ragLine"/>
   <path d="M990 815 L1010 815" class="ragLine"/>
   <path d="M1190 815 L1210 815" class="ragLine"/>
@@ -179,8 +182,48 @@
   <text x="1005" y="990" text-anchor="middle" class="small">DDL / SampleValue</text>
   <text x="1005" y="1010" text-anchor="middle" class="tiny">namespace 同步与旧文档清理</text>
 
-  <rect x="70" y="1050" width="1350" height="42" rx="12" fill="#e2e8f0" stroke="#cbd5e1"/>
-  <text x="745" y="1077" text-anchor="middle" class="small">app/config.py：统一管理 Provider、模型、Base URL、API Key 环境变量和运行参数</text>
+  <text x="70" y="1090" class="section">V7 NL2SQL LANGGRAPH（已实现）</text>
+  <line x1="70" y1="1102" x2="1520" y2="1102" class="divider"/>
+
+  <rect x="70" y="1130" width="175" height="76" class="box rag"/>
+  <text x="157" y="1161" text-anchor="middle" class="label">SchemaLinking</text>
+  <text x="157" y="1187" text-anchor="middle" class="tiny">候选表与 Schema evidence</text>
+
+  <rect x="275" y="1130" width="175" height="76" class="box storage"/>
+  <text x="362" y="1161" text-anchor="middle" class="label">ContextPrepare</text>
+  <text x="362" y="1187" text-anchor="middle" class="tiny">历史 / 摘要 / MEMORY / Budget</text>
+
+  <rect x="480" y="1130" width="175" height="76" class="box rag"/>
+  <text x="567" y="1161" text-anchor="middle" class="label">GenSQL</text>
+  <text x="567" y="1187" text-anchor="middle" class="tiny">LLMAdapter.complete(tools=[])</text>
+
+  <rect x="685" y="1130" width="175" height="76" class="box rag"/>
+  <text x="772" y="1161" text-anchor="middle" class="label">ValidateSQL</text>
+  <text x="772" y="1187" text-anchor="middle" class="tiny">SQLGlot · 表列白名单 · 无 *</text>
+
+  <rect x="890" y="1130" width="175" height="76" class="box rag"/>
+  <text x="977" y="1161" text-anchor="middle" class="label">Execute</text>
+  <text x="977" y="1187" text-anchor="middle" class="tiny">只读 Executor · 专用业务 SQLite</text>
+
+  <rect x="1095" y="1130" width="175" height="76" class="box rag"/>
+  <text x="1182" y="1161" text-anchor="middle" class="label">Reflection</text>
+  <text x="1182" y="1187" text-anchor="middle" class="tiny">原因回流 · 最多 2 次</text>
+
+  <rect x="1300" y="1130" width="175" height="76" class="box current"/>
+  <text x="1387" y="1161" text-anchor="middle" class="label">Output</text>
+  <text x="1387" y="1187" text-anchor="middle" class="tiny">结果 / SQL / usage / Memory 收尾</text>
+
+  <path d="M245 1168 L275 1168" class="ragLine"/>
+  <path d="M450 1168 L480 1168" class="ragLine"/>
+  <path d="M655 1168 L685 1168" class="ragLine"/>
+  <path d="M860 1168 L890 1168" class="ragLine"/>
+  <path d="M1065 1168 L1095 1168" class="ragLine"/>
+  <path d="M1270 1168 L1300 1168" class="ragLine"/>
+  <path d="M1182 1206 C1182 1260 567 1260 567 1206" class="ragLine"/>
+  <text x="875" y="1251" text-anchor="middle" class="tiny">regenerate 时回到 GenSQL（最多 3 次生成）；安全校验失败 → 422，预算失败 → 413，未启用或业务库不可用 → 503</text>
+
+  <rect x="70" y="1300" width="1405" height="42" rx="12" fill="#e2e8f0" stroke="#cbd5e1"/>
+  <text x="772" y="1327" text-anchor="middle" class="small">app/config.py：统一管理 Provider、模型、Base URL、API Key 环境变量、NL2SQL 开关与运行参数</text>
 
   <path d="M735 930 L735 860" class="ragLine"/>
   <path d="M860 976 L880 976" class="ragLine"/>
