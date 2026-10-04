@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from app.rag.context_packer import ContextPacker
 from app.rag.indexer import RagSchemaRecord, SchemaIndexer
 from app.rag.retriever import SchemaRetriever
+from app.rag.context_packer import RagContextBudgetExceeded
 
 
 class SchemaLinkingResult(BaseModel):
@@ -28,4 +29,7 @@ class SchemaLinkingService:
         result = self.retriever.search(message, self.namespace, limit=3)
         if result.status != "ok":
             return SchemaLinkingResult(status=result.status)
-        return SchemaLinkingResult(status="ok", context=self.packer.pack(result.candidates, budget=1200))
+        context = self.packer.pack(result.candidates, budget=1200)
+        if not context:
+            raise RagContextBudgetExceeded("Schema evidence could not be packed safely.")
+        return SchemaLinkingResult(status="ok", context=context)

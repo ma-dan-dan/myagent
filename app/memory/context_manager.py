@@ -12,7 +12,7 @@ from app.storage.session_service import SessionService
 
 
 FIXED_SYSTEM_PROMPT = (
-    "你是一个简洁、诚实的助手。只能使用 search_schema 查询脱敏 Schema 元数据，"
+    "你是一个简洁、诚实的助手。可以使用注入的脱敏 Schema evidence 回答，"
     "不能执行 SQL、读取数据行或调用其他工具。信息不足时直接用普通助手文字追问，结束本轮。"
 )
 
@@ -128,6 +128,12 @@ class ContextManager:
                     estimated,
                     self.token_manager.hard_input_budget,
                     "历史消息无法在预算内保留，请缩短当前问题后重试。",
+                )
+            if fixed_over_soft_cap and extra_context:
+                raise ContextBudgetExceeded(
+                    estimated,
+                    self.token_manager.hard_input_budget,
+                    "固定上下文无法在预算内压缩，请缩短当前问题。",
                 )
             if fixed_over_soft_cap and summary is not None and summary_calls >= self.policy.max_summary_calls_per_request:
                 raise ContextBudgetExceeded(

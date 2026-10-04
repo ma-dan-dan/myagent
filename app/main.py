@@ -50,6 +50,8 @@ def create_app(
     intent_classifier: IntentClassifier | None = None,
     intent_llm_adapter: LLMAdapter | None = None,
     schema_linking_service: SchemaLinkingService | None = None,
+    rag_records: list[RagSchemaRecord] | None = None,
+    rag_index_path: str | Path | None = None,
 ) -> FastAPI:
 
     # 1、 创建 FastAPI 应用实例，并确定工作空间的路径，如果没有提供 workspace_root，则使用当前文件的父目录作为默认路径。
@@ -84,17 +86,17 @@ def create_app(
         policy,
     )
     if schema_linking_service is None:
-        records = [
+        records = rag_records if rag_records is not None else [
             RagSchemaRecord(
                 table_id=table.table_name,
                 table_name=table.table_name,
                 ddl="CREATE TABLE " + table.table_name + " (" + ", ".join(f"{column.column_name} {column.data_type}" for column in table.columns) + ");",
-                columns=[RagColumnRecord(column_name=column.column_name, data_type=column.data_type, sample_values=[f"sample-{column.column_name}"]) for column in table.columns],
+                columns=[RagColumnRecord(column_name=column.column_name, data_type=column.data_type) for column in table.columns],
             )
-            for table in catalog._tables
+            for table in catalog.tables
         ]
         embedding = QwenEmbeddingAdapter.from_env()
-        store = LanceVectorStore(DEFAULT_RAG_INDEX_PATH)
+        store = LanceVectorStore(rag_index_path or DEFAULT_RAG_INDEX_PATH)
         schema_linking_service = SchemaLinkingService(SchemaIndexer(embedding, store), SchemaRetriever(embedding, store), ContextPacker(manager), records)
 
     if intent_classifier is None:

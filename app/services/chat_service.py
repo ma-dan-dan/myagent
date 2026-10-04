@@ -65,35 +65,33 @@ class ChatService:
                 },
             )
         self.session_service.append_message(user_id, active_session_id, "assistant", result.message)
-        chat_usage = result.usage.model_copy(
-            update={
-                "estimated_context_tokens": prepared.estimated_context_tokens,
-                "context_window": prepared.context_window,
-            }
-        )
+        return self._finish_success(user_id, active_session_id, prepared, result, route_result)
+
+    def _finish_success(self, user_id, session_id, prepared, result, route_result):
+        chat_usage = result.usage.model_copy(update={"estimated_context_tokens": prepared.estimated_context_tokens, "context_window": prepared.context_window})
         model = str(getattr(self.agent.llm, "model", "unknown") or "unknown")
-        self.session_service.record_usage(user_id, active_session_id, "chat", model, chat_usage)
+        self.session_service.record_usage(user_id, session_id, "chat", model, chat_usage)
         current_turn = chat_usage
         if prepared.maintenance.compacted:
             self.session_service.record_usage(
                 user_id,
-                active_session_id,
+                session_id,
                 "summary",
                 model,
                 prepared.maintenance.summary_usage,
             )
             self.session_service.record_usage(
                 user_id,
-                active_session_id,
+                session_id,
                 "memory",
                 model,
                 prepared.maintenance.memory_usage,
             )
             self.long_term_memory.upsert(prepared.maintenance.memory_entries)
             current_turn = current_turn.add(prepared.maintenance.summary_usage).add(prepared.maintenance.memory_usage)
-        usage = self.session_service.get_session_usage(user_id, active_session_id, current_turn)
+        usage = self.session_service.get_session_usage(user_id, session_id, current_turn)
         return ChatResponse(
-            session_id=active_session_id,
+            session_id=session_id,
             message=result.message,
             tool_events=result.tool_events,
             usage=usage,
@@ -114,8 +112,7 @@ class ChatService:
         self.session_service.append_message(user_id, session_id, "user", message)
         result = self.agent.run(prepared.messages, tools=[])
         self.session_service.append_message(user_id, session_id, "assistant", result.message)
-        usage = self.session_service.get_session_usage(user_id, session_id, result.usage.model_copy(update={"estimated_context_tokens": prepared.estimated_context_tokens, "context_window": prepared.context_window}))
-        return ChatResponse(session_id=session_id, message=result.message, usage=usage, intent_decision=route_result.decision, routed_intent=route_result.routed_intent, fallback_reason=route_result.fallback_reason)
+        return self._finish_success(user_id, session_id, prepared, result, route_result)
 
     def _stable_response(self, user_id: str, session_id: str, message: str, route_result: IntentRouteResult, assistant_message: str) -> ChatResponse:
         self.session_service.append_message(user_id, session_id, "user", message)

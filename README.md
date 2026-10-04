@@ -8,7 +8,8 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 按 `user_id + session_id` 隔离会话，持久化用户消息、助手消息、工具事件、会话摘要和模型用量。
 - 通过 `ChatAgent` 实现轻量 Agent Loop：模型可请求工具，后端执行工具后将结果回填给模型，再获取最终回答。
 - 通过 `ToolRegistry` 管理工具白名单；当前已接入 `search_schema` 工具。
-- 对 `data_operation/read` 使用 DDL 与脱敏 SampleValue 的双路向量召回；RAG 只提供 Schema 证据，不执行 SQL。
+- 对 `data_operation/read` 使用 DDL 与脱敏 SampleValue 的双路向量召回；默认 Catalog 只建立 DDL 索引，RAG 只提供 Schema 证据，不执行 SQL。
+- SampleValue 仅接受外部明确提供的样例；敏感字段和值、低相似度候选会被过滤，歧义候选返回确认提示，Schema 证据无法安全放入上下文预算时接口返回 `413`。
 - 使用 LiteLLM 接入 OpenAI、DeepSeek、Qwen 三类模型，并保留可注入的 Fake LLM 测试方式。
 - 使用滑动窗口、会话摘要、Token 估算和 `MEMORY.md` 管理会话上下文与长期项目记忆。
 

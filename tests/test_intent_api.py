@@ -7,6 +7,9 @@ from app.agent.adapter import LLMResponse
 from app.intent.classifier import IntentClassificationError
 from app.intent.fake_classifier import FakeIntentClassifier
 from app.main import create_app
+from app.memory.models import ContextPolicy, TokenUsage
+from app.rag.context_packer import RagContextBudgetExceeded
+from app.rag.indexer import RagSchemaRecord
 from app.rag.service import SchemaLinkingResult
 
 
@@ -94,7 +97,14 @@ def test_data_read_uses_schema_linking_context_without_tools(tmp_path):
             )
 
     classifier = FakeIntentClassifier.for_result("查产量", "data_operation", "read", 1.0)
-    chat_llm = FakeLLM([LLMResponse.message("production_output 包含产量字段。")])
+    chat_llm = FakeLLM(
+        [
+            LLMResponse.message(
+                "production_output 包含产量字段。",
+                usage=TokenUsage(requests=1, input_tokens=12, output_tokens=4, total_tokens=16),
+            )
+        ]
+    )
     client = TestClient(
         create_app(
             db_path=tmp_path / "chat.sqlite3",
@@ -110,7 +120,119 @@ def test_data_read_uses_schema_linking_context_without_tools(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["message"] == "production_output 包含产量字段。"
+    assert response.json()["usage"]["current_turn"]["total_tokens"] == 16
     assert chat_llm.calls[0][1] == []
+    with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
+        assert connection.execute("SELECT operation, total_tokens FROM token_usages").fetchall() == [("chat", 16)]
+
+
+def test_data_read_returns_413_without_calling_chat_model_when_schema_budget_is_exceeded(tmp_path):
+    class BudgetExceededSchemaLinkingService:
+        def search(self, message):
+            raise RagContextBudgetExceeded("Schema evidence exceeds the available context budget.")
+
+    classifier = FakeIntentClassifier.for_result("查产量", "data_operation", "read", 1.0)
+    chat_llm = FakeLLM([])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=chat_llm,
+            intent_classifier=classifier,
+            schema_linking_service=BudgetExceededSchemaLinkingService(),
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "查产量"})
+
+    assert response.status_code == 413
+    assert "Schema 证据过长" in response.json()["detail"]
+    assert chat_llm.calls == []
+    with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+
+
+def test_data_read_default_rag_wiring_uses_mocked_embedding_and_no_tools(tmp_path, monkeypatch):
+    def fake_embedding(**kwargs):
+        return {"data": [{"embedding": [1.0, 0.0]} for _ in kwargs["input"]]}
+
+    monkeypatch.setenv("QWEN_API_KEY", "test-key-not-real")
+    monkeypatch.setattr("app.rag.embedding.litellm.embedding", fake_embedding)
+    classifier = FakeIntentClassifier.for_result("查订单", "data_operation", "read", 1.0)
+    chat_llm = FakeLLM([LLMResponse.message("orders 是订单表。")])
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=chat_llm,
+            intent_classifier=classifier,
+            rag_records=[
+                RagSchemaRecord(
+                    table_id="orders",
+                    table_name="orders",
+                    ddl="CREATE TABLE orders (order_id TEXT);",
+                )
+            ],
+            rag_index_path=tmp_path / "rag",
+            workspace_root=tmp_path,
+        )
+    )
+
+    response = client.post("/api/v1/chat", json={"user_id": "alice", "message": "查订单"})
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "orders 是订单表。"
+    assert chat_llm.calls[0][1] == []
+
+
+def test_data_read_reuses_summary_memory_and_usage_finalization(tmp_path):
+    class FakeSchemaLinkingService:
+        def search(self, message):
+            return SchemaLinkingResult(
+                status="ok",
+                context='<schema_evidence table="orders">CREATE TABLE orders ();</schema_evidence>',
+            )
+
+    classifier = FakeIntentClassifier.for_result("查订单", "data_operation", "read", 1.0)
+    chat_llm = FakeLLM(
+        [
+            LLMResponse.message("历史摘要", usage=TokenUsage(requests=1, total_tokens=2)),
+            LLMResponse.message('[{"content":"用户偏好按月查看订单"}]', usage=TokenUsage(requests=1, total_tokens=3)),
+            LLMResponse.message("orders 是订单表。", usage=TokenUsage(requests=1, total_tokens=4)),
+        ]
+    )
+    client = TestClient(
+        create_app(
+            db_path=tmp_path / "chat.sqlite3",
+            catalog_path=Path(__file__).parents[1] / "data" / "schema_catalog.json",
+            llm_adapter=chat_llm,
+            intent_classifier=classifier,
+            schema_linking_service=FakeSchemaLinkingService(),
+            context_policy=ContextPolicy(recent_message_limit=2),
+            workspace_root=tmp_path,
+        )
+    )
+    service = client.app.state.chat_service
+    session_id = service.session_service.create_session("alice")
+    for index in range(3):
+        service.session_service.append_message("alice", session_id, "user", f"历史消息 {index}")
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"user_id": "alice", "session_id": session_id, "message": "查订单"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["usage"]["current_turn"]["total_tokens"] == 9
+    assert chat_llm.calls[-1][1] == []
+    assert "用户偏好按月查看订单" in (tmp_path / ".myagent" / "memory" / "chat" / "MEMORY.md").read_text(encoding="utf-8")
+    with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
+        assert connection.execute("SELECT operation FROM token_usages ORDER BY id").fetchall() == [
+            ("chat",),
+            ("summary",),
+            ("memory",),
+        ]
 
 
 def test_data_read_returns_503_when_qwen_embedding_key_is_missing(tmp_path, monkeypatch):

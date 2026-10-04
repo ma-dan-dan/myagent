@@ -138,6 +138,20 @@ def test_context_manager_raises_when_minimum_prompt_exceeds_hard_budget(tmp_path
         raise AssertionError("ContextBudgetExceeded was not raised")
 
 
+def test_context_manager_rejects_schema_evidence_that_exceeds_fixed_context_budget(tmp_path):
+    manager, _, session_id = build_manager(
+        tmp_path,
+        DeterministicTokenManager(fixed_cost=20, current_cost=5),
+    )
+
+    try:
+        manager.prepare("user-a", session_id, "current", extra_context="<schema_evidence>DDL</schema_evidence>")
+    except ContextBudgetExceeded as exc:
+        assert "固定上下文" in exc.reason
+    else:
+        raise AssertionError("ContextBudgetExceeded was not raised")
+
+
 def test_context_manager_limits_summary_calls_to_two(tmp_path):
     manager, session, session_id = build_manager(
         tmp_path,

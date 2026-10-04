@@ -35,3 +35,7 @@ class SchemaCatalog:
             if len(matches) >= limit:
                 break
         return matches
+
+    @property
+    def tables(self) -> list[SchemaTable]:
+        return list(self._tables)

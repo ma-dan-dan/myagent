@@ -16,6 +16,10 @@ class LanceVectorStore:
     def _has_table(self, name: str) -> bool:
         return name in self.db.list_tables().tables
 
+    @staticmethod
+    def _quote_filter_value(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
     def upsert(self, source_type: RagSourceType, entries: list[tuple[RagDocument, list[float]]]) -> None:
         if not entries:
             return
@@ -37,17 +41,24 @@ class LanceVectorStore:
         ]
         if self._has_table(name):
             table = self.db.open_table(name)
-            ids = ",".join(f"'{row['document_id']}'" for row in rows)
+            ids = ",".join(self._quote_filter_value(row["document_id"]) for row in rows)
             table.delete(f"document_id IN ({ids})")
             table.add(rows)
         else:
             self.db.create_table(name, data=rows)
 
+    def replace_namespace(self, source_type: RagSourceType, namespace: str, entries: list[tuple[RagDocument, list[float]]]) -> None:
+        name = self._TABLES[source_type]
+        if self._has_table(name):
+            self.db.open_table(name).delete(f"namespace = {self._quote_filter_value(namespace)}")
+        if entries:
+            self.upsert(source_type, entries)
+
     def search(self, source_type: RagSourceType, vector: list[float], namespace: str, limit: int) -> list[VectorHit]:
         name = self._TABLES[source_type]
         if not self._has_table(name) or limit < 1:
             return []
-        rows = self.db.open_table(name).search(vector).where(f"namespace = '{namespace}'").limit(limit).to_list()
+        rows = self.db.open_table(name).search(vector).where(f"namespace = {self._quote_filter_value(namespace)}").limit(limit).to_list()
         hits: list[VectorHit] = []
         for rank, row in enumerate(rows, start=1):
             document = RagDocument(
