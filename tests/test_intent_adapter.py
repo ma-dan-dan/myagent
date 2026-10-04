@@ -1,6 +1,7 @@
 import litellm
 
 from app.agent.llm_factory import LLMAdapterFactory, LLMAdapterConfig
+from app.config import INTENT_LLM_MODEL_CONFIGS
 from app.intent.llm_adapter import IntentLLMAdapter
 from app.intent.llm_factory import IntentLLMAdapterFactory
 
@@ -47,3 +48,22 @@ def test_intent_adapter_reuses_provider_litellm_call(monkeypatch):
             "api_base": "https://api.deepseek.com",
         }
     ]
+
+
+def test_intent_adapter_uses_provider_specific_intent_model(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        litellm,
+        "completion",
+        lambda **kwargs: calls.append(kwargs)
+        or {"choices": [{"message": {"content": "分类结果"}}]},
+    )
+    monkeypatch.setenv("INTENT_LLM_PROVIDER", "qwen")
+    monkeypatch.setenv("QWEN_API_KEY", "intent-key")
+    monkeypatch.setitem(INTENT_LLM_MODEL_CONFIGS, "qwen", "qwen-intent-small")
+
+    adapter = IntentLLMAdapterFactory.from_env()
+    adapter.complete([{"role": "user", "content": "你好"}], [])
+
+    assert adapter.model == "qwen-intent-small"
+    assert calls[0]["model"] == "dashscope/qwen-intent-small"

@@ -3,6 +3,7 @@ import pytest
 from app.agent.adapter import LLMConfigurationError
 from app.agent.llm_factory import LLMAdapterFactory
 from app.config import (
+    INTENT_LLM_MODEL_CONFIGS,
     get_intent_llm_runtime_config,
     get_intent_runtime_config,
     get_llm_runtime_config,
@@ -62,6 +63,20 @@ def test_intent_llm_runtime_config_defaults_to_chat_provider(monkeypatch):
 
     assert config.provider == "qwen"
     assert config.model == "deepseek-v4.1-flash"
+
+
+def test_intent_llm_runtime_config_uses_model_configured_separately_from_chat(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "qwen")
+    monkeypatch.setenv("INTENT_LLM_PROVIDER", "qwen")
+    monkeypatch.setenv("QWEN_API_KEY", "intent-key")
+    monkeypatch.setitem(INTENT_LLM_MODEL_CONFIGS, "qwen", "qwen-intent-small")
+
+    chat_config = get_llm_runtime_config()
+    intent_config = get_intent_llm_runtime_config()
+
+    assert chat_config.provider == intent_config.provider == "qwen"
+    assert chat_config.model == "deepseek-v4.1-flash"
+    assert intent_config.model == "qwen-intent-small"
 
 
 def test_runtime_config_uses_existing_default_providers(monkeypatch):

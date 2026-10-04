@@ -65,6 +65,11 @@ class IntentRuntimeConfig:
 
 # 意图 LLM 配置：允许意图分类使用独立 Provider，未配置时跟随主聊天模型 Provider。
 INTENT_LLM_PROVIDER_ENV = "INTENT_LLM_PROVIDER"
+INTENT_LLM_MODEL_CONFIGS = {
+    "openai": "gpt-4o-mini",
+    "deepseek": "deepseek-flash",
+    "qwen": "deepseek-v4.1-flash",
+}
 
 
 @dataclass(frozen=True)
@@ -111,6 +116,6 @@ def get_intent_llm_runtime_config() -> IntentLLMRuntimeConfig:
     return IntentLLMRuntimeConfig(
         provider=provider,
         api_key=os.getenv(provider_config.api_key_env),
-        model=provider_config.model,
+        model=INTENT_LLM_MODEL_CONFIGS.get(provider, provider_config.model),
         base_url=provider_config.base_url,
     )
