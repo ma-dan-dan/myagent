@@ -11,6 +11,7 @@ __pycache__/
 # Runtime state and local chat data
 .myagent/
 data/chat.sqlite3
+data/rag_index/
 
 # Test and tooling caches
 .pytest_cache/

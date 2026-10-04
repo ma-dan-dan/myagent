@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">MyAgent 当前架构与 V6 RAG 目标链路</title>
+  <desc id="desc">展示请求、意图识别、聊天模型、DDL 与 SampleValue 双路召回、配置和存储之间的关系。</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="100%" stop-color="#eef4fb"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dceeff"/>
+      <stop offset="100%" stop-color="#c7e2ff"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e4f8ed"/>
+      <stop offset="100%" stop-color="#ccefdc"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff0d5"/>
+      <stop offset="100%" stop-color="#ffe1ad"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eee5ff"/>
+      <stop offset="100%" stop-color="#dfd0ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#64748b" flood-opacity="0.16"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#d97706"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #172033; }
+      .subtitle { font: 400 15px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .label { font: 700 18px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #172033; }
+      .small { font: 400 14px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #334155; }
+      .tiny { font: 400 12px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .section { font: 700 16px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; letter-spacing: 1px; }
+      .box { stroke-width: 1.5; rx: 14; filter: url(#shadow); }
+      .current { stroke: #6aa6d8; fill: url(#blue); }
+      .intent { stroke: #66b889; fill: url(#green); }
+      .planned { stroke: #e6a642; fill: url(#orange); stroke-dasharray: 9 7; }
+      .storage { stroke: #9877d1; fill: url(#purple); }
+      .muted { stroke: #94a3b8; fill: #f8fafc; }
+      .line { stroke: #64748b; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .plannedLine { stroke: #d97706; stroke-width: 2.2; fill: none; stroke-dasharray: 9 7; marker-end: url(#arrowOrange); }
+      .divider { stroke: #cbd5e1; stroke-width: 1; stroke-dasharray: 4 8; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1120" fill="url(#background)"/>
+  <text x="70" y="62" class="title">MyAgent 当前架构与 V6 RAG 目标链路</text>
+  <text x="70" y="91" class="subtitle">实线：当前已接入链路　·　橙色虚线：V6 DDL + SampleValue RAG 规划链路</text>
+
+  <rect x="630" y="120" width="340" height="64" class="box current"/>
+  <text x="800" y="148" text-anchor="middle" class="label">Web / API Request</text>
+  <text x="800" y="171" text-anchor="middle" class="small">FastAPI + Native HTML</text>
+
+  <path d="M800 184 L800 220" class="line"/>
+  <rect x="610" y="220" width="380" height="68" class="box current"/>
+  <text x="800" y="249" text-anchor="middle" class="label">ChatService</text>
+  <text x="800" y="272" text-anchor="middle" class="small">会话、持久化、业务编排</text>
+
+  <path d="M800 288 L800 324" class="line"/>
+  <rect x="610" y="324" width="380" height="68" class="box intent"/>
+  <text x="800" y="353" text-anchor="middle" class="label">IntentRouter</text>
+  <text x="800" y="376" text-anchor="middle" class="small">chat / data_operation / nl2sql</text>
+
+  <path d="M800 392 L800 420" class="line"/>
+  <rect x="300" y="420" width="280" height="76" class="box intent"/>
+  <text x="440" y="451" text-anchor="middle" class="label">Fake / Jev</text>
+  <text x="440" y="475" text-anchor="middle" class="small">IntentClassifier</text>
+
+  <rect x="660" y="420" width="280" height="76" class="box intent"/>
+  <text x="800" y="451" text-anchor="middle" class="label">LLMIntentClassifier</text>
+  <text x="800" y="475" text-anchor="middle" class="small">JSON + Pydantic 校验</text>
+
+  <rect x="1020" y="420" width="280" height="76" class="box muted"/>
+  <text x="1160" y="451" text-anchor="middle" class="label">IntentDecision</text>
+  <text x="1160" y="475" text-anchor="middle" class="small">原始意图与路由结果分离</text>
+
+  <path d="M800 392 L440 420" class="line"/>
+  <path d="M800 392 L800 420" class="line"/>
+  <path d="M800 392 L1160 420" class="line"/>
+  <path d="M800 496 L800 525" class="line"/>
+
+  <text x="110" y="548" class="section">ROUTING</text>
+  <line x1="110" y1="560" x2="1490" y2="560" class="divider"/>
+
+  <rect x="80" y="590" width="410" height="112" class="box current"/>
+  <text x="285" y="625" text-anchor="middle" class="label">chat</text>
+  <text x="285" y="651" text-anchor="middle" class="small">ContextManager</text>
+  <text x="285" y="676" text-anchor="middle" class="small">→ ChatAgent → Chat LLMAdapter</text>
+
+  <rect x="595" y="590" width="410" height="112" class="box planned"/>
+  <text x="800" y="625" text-anchor="middle" class="label">data_operation / read</text>
+  <text x="800" y="651" text-anchor="middle" class="small">SchemaLinkingService</text>
+  <text x="800" y="676" text-anchor="middle" class="small">→ Fusion Context → ChatAgent(tools=[])</text>
+
+  <rect x="1110" y="590" width="410" height="112" class="box muted"/>
+  <text x="1315" y="625" text-anchor="middle" class="label">其他路由</text>
+  <text x="1315" y="651" text-anchor="middle" class="small">data_operation 非 read</text>
+  <text x="1315" y="676" text-anchor="middle" class="small">nl2sql → 稳定占位响应</text>
+
+  <path d="M800 525 L285 590" class="line"/>
+  <path d="M800 525 L800 590" class="plannedLine"/>
+  <path d="M800 525 L1315 590" class="line"/>
+
+  <text x="680" y="735" class="section">V6 RAG PIPELINE</text>
+  <line x1="680" y1="747" x2="920" y2="747" class="divider"/>
+
+  <rect x="610" y="770" width="180" height="90" class="box planned"/>
+  <text x="700" y="805" text-anchor="middle" class="label">DDL Retriever</text>
+  <text x="700" y="830" text-anchor="middle" class="small">top-k</text>
+  <text x="700" y="850" text-anchor="middle" class="tiny">表结构语义召回</text>
+
+  <rect x="810" y="770" width="180" height="90" class="box planned"/>
+  <text x="900" y="805" text-anchor="middle" class="label">SampleValue</text>
+  <text x="900" y="830" text-anchor="middle" class="small">Retriever top-k</text>
+  <text x="900" y="850" text-anchor="middle" class="tiny">值语义召回</text>
+
+  <rect x="1010" y="770" width="180" height="90" class="box planned"/>
+  <text x="1100" y="805" text-anchor="middle" class="label">Fusion</text>
+  <text x="1100" y="830" text-anchor="middle" class="small">RRF / 去重</text>
+  <text x="1100" y="850" text-anchor="middle" class="tiny">按 table_id 合并</text>
+
+  <rect x="1210" y="770" width="180" height="90" class="box planned"/>
+  <text x="1300" y="805" text-anchor="middle" class="label">Context Packer</text>
+  <text x="1300" y="830" text-anchor="middle" class="small">Token Budget</text>
+  <text x="1300" y="850" text-anchor="middle" class="tiny">证据注入 Prompt</text>
+
+  <path d="M800 702 L700 770" class="plannedLine"/>
+  <path d="M800 702 L900 770" class="plannedLine"/>
+  <path d="M790 815 L1010 815" class="plannedLine"/>
+  <path d="M990 815 L1010 815" class="plannedLine"/>
+  <path d="M1190 815 L1210 815" class="plannedLine"/>
+  <path d="M1300 860 L1300 915" class="plannedLine"/>
+
+  <rect x="1180" y="915" width="240" height="74" class="box planned"/>
+  <text x="1300" y="946" text-anchor="middle" class="label">一次主模型回答</text>
+  <text x="1300" y="971" text-anchor="middle" class="small">不调用 RAG Tool Loop</text>
+
+  <text x="70" y="772" class="section">CROSS-CUTTING</text>
+  <line x1="70" y1="784" x2="520" y2="784" class="divider"/>
+
+  <rect x="70" y="815" width="220" height="92" class="box storage"/>
+  <text x="180" y="849" text-anchor="middle" class="label">IntentLLMAdapter</text>
+  <text x="180" y="875" text-anchor="middle" class="small">独立意图模型</text>
+  <text x="180" y="895" text-anchor="middle" class="tiny">LiteLLM Provider</text>
+
+  <rect x="310" y="815" width="220" height="92" class="box storage"/>
+  <text x="420" y="849" text-anchor="middle" class="label">Chat LLMAdapter</text>
+  <text x="420" y="875" text-anchor="middle" class="small">主聊天模型</text>
+  <text x="420" y="895" text-anchor="middle" class="tiny">LiteLLM Provider</text>
+
+  <rect x="70" y="930" width="220" height="92" class="box storage"/>
+  <text x="180" y="964" text-anchor="middle" class="label">SessionService</text>
+  <text x="180" y="990" text-anchor="middle" class="small">SQLite</text>
+  <text x="180" y="1010" text-anchor="middle" class="tiny">user_id + session_id</text>
+
+  <rect x="310" y="930" width="220" height="92" class="box storage"/>
+  <text x="420" y="964" text-anchor="middle" class="label">Context + Memory</text>
+  <text x="420" y="990" text-anchor="middle" class="small">摘要 / Token / MEMORY.md</text>
+  <text x="420" y="1010" text-anchor="middle" class="tiny">项目级长期记忆</text>
+
+  <rect x="610" y="930" width="250" height="92" class="box planned"/>
+  <text x="735" y="964" text-anchor="middle" class="label">Qwen Embedding</text>
+  <text x="735" y="990" text-anchor="middle" class="small">text-embedding-v3</text>
+  <text x="735" y="1010" text-anchor="middle" class="tiny">QWEN_API_KEY</text>
+
+  <rect x="880" y="930" width="250" height="92" class="box planned"/>
+  <text x="1005" y="964" text-anchor="middle" class="label">LanceDB Index</text>
+  <text x="1005" y="990" text-anchor="middle" class="small">DDL / SampleValue</text>
+  <text x="1005" y="1010" text-anchor="middle" class="tiny">项目级向量索引</text>
+
+  <rect x="70" y="1050" width="1350" height="42" rx="12" fill="#e2e8f0" stroke="#cbd5e1"/>
+  <text x="745" y="1077" text-anchor="middle" class="small">app/config.py：统一管理 Provider、模型、Base URL、API Key 环境变量和运行参数</text>
+
+  <path d="M735 930 L735 860" class="plannedLine"/>
+  <path d="M860 976 L880 976" class="plannedLine"/>
+  <path d="M700 860 L700 930" class="plannedLine"/>
+  <path d="M900 860 L1005 930" class="plannedLine"/>
+</svg>
