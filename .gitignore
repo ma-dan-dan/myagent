@@ -13,6 +13,7 @@ __pycache__/
 data/chat.sqlite3
 data/rag_index/
 artifacts/rag-eval/
+artifacts/nl2sql-eval/
 data/bird/
 
 # Test and tooling caches

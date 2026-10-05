@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pydantic import BaseModel, Field
 
 from app.rag.context_packer import ContextPacker
 from app.rag.indexer import RagSchemaRecord, SchemaIndexer
 from app.rag.retriever import SchemaRetriever
 from app.rag.context_packer import RagContextBudgetExceeded
-from app.rag.models import SchemaCandidate
+from app.rag.models import RagSourceType, SchemaCandidate
 
 
 class SchemaLinkingResult(BaseModel):
@@ -16,19 +18,24 @@ class SchemaLinkingResult(BaseModel):
 
 
 class SchemaLinkingService:
-    def __init__(self, indexer: SchemaIndexer, retriever: SchemaRetriever, packer: ContextPacker, records: list[RagSchemaRecord], namespace: str = "default") -> None:
+    def __init__(self, indexer: SchemaIndexer, retriever: SchemaRetriever, packer: ContextPacker, records: list[RagSchemaRecord], namespace: str = "default", limit: int = 3, sources: Sequence[RagSourceType] | None = None) -> None:
         self.indexer = indexer
         self.retriever = retriever
         self.packer = packer
         self.records = records
         self.namespace = namespace
+        self.limit = limit
+        self.sources = tuple(sources) if sources is not None else None
         self._indexed = False
 
     def search(self, message: str) -> SchemaLinkingResult:
         if not self._indexed:
             self.indexer.index(self.records)
             self._indexed = True
-        result = self.retriever.search(message, self.namespace, limit=3)
+        if self.sources is None:
+            result = self.retriever.search(message, self.namespace, limit=self.limit)
+        else:
+            result = self.retriever.search(message, self.namespace, limit=self.limit, sources=self.sources)
         if result.status != "ok":
             return SchemaLinkingResult(status=result.status)
         context = self.packer.pack(result.candidates, budget=1200)

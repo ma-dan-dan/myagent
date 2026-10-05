@@ -69,6 +69,22 @@ class NL2SQLGraphService:
         result = self.graph.invoke(initial.model_dump())
         return NL2SQLState.model_validate(result)
 
+    def invoke_with_trace(self, user_id: str, session_id: str, user_message: str) -> tuple[NL2SQLState, list[tuple[str, NL2SQLState]]]:
+        initial = NL2SQLState(
+            user_id=user_id,
+            session_id=session_id,
+            user_message=user_message,
+            max_attempts=self.max_attempts,
+            max_reflections=self.max_reflections,
+        )
+        trace: list[tuple[str, NL2SQLState]] = []
+        final_state = initial
+        for update in self.graph.stream(initial.model_dump(), stream_mode="updates"):
+            for node_name, node_state in update.items():
+                final_state = NL2SQLState.model_validate(node_state)
+                trace.append((node_name, final_state))
+        return final_state, trace
+
     def _build_graph(self):
         workflow = StateGraph(GraphState)
         workflow.add_node("schema_linking", lambda state: schema_linking_node(state, self.schema_linking_service))

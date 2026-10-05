@@ -5,6 +5,7 @@ from app.rag.context_packer import ContextPacker
 from app.rag.embedding import FakeEmbedding, QwenEmbeddingAdapter, RagConfigurationError
 from app.rag.models import RagDocument, RagSourceType, SchemaCandidate
 from app.rag.retriever import SchemaRetriever
+from app.rag.service import SchemaLinkingService
 from app.rag.vector_store import LanceVectorStore
 
 
@@ -117,3 +118,67 @@ def test_context_packer_respects_token_budget_and_keeps_schema_evidence():
     )
 
     assert "production_output" in packed
+
+
+def test_schema_linking_service_accepts_an_explicit_retrieval_limit():
+    class Indexer:
+        def index(self, records):
+            return None
+
+    class Retriever:
+        def __init__(self):
+            self.limit = None
+
+        def search(self, message, namespace, limit):
+            self.limit = limit
+            from app.rag.models import RetrievalResult
+
+            return RetrievalResult(
+                status="ok",
+                candidates=[SchemaCandidate(table_id="orders", table_name="orders", ddl="CREATE TABLE orders (id INTEGER)", score=1)],
+            )
+
+    class Packer:
+        def pack(self, candidates, budget):
+            return "<schema_evidence>orders</schema_evidence>"
+
+    retriever = Retriever()
+    service = SchemaLinkingService(Indexer(), retriever, Packer(), [], namespace="shop", limit=5)
+
+    assert service.search("查询订单").status == "ok"
+    assert retriever.limit == 5
+
+
+def test_schema_linking_service_can_limit_evaluation_to_one_rag_source():
+    class Indexer:
+        def index(self, records):
+            return None
+
+    class Retriever:
+        def __init__(self):
+            self.sources = None
+
+        def search(self, message, namespace, limit, sources=None):
+            self.sources = sources
+            from app.rag.models import RetrievalResult
+
+            return RetrievalResult(
+                status="ok",
+                candidates=[SchemaCandidate(table_id="orders", table_name="orders", ddl="CREATE TABLE orders (id INTEGER)", score=1)],
+            )
+
+    class Packer:
+        def pack(self, candidates, budget):
+            return "<schema_evidence>orders</schema_evidence>"
+
+    retriever = Retriever()
+    service = SchemaLinkingService(
+        Indexer(),
+        retriever,
+        Packer(),
+        [],
+        sources=[RagSourceType.DDL],
+    )
+
+    assert service.search("查询订单").status == "ok"
+    assert retriever.sources == (RagSourceType.DDL,)

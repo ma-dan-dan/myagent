@@ -11,6 +11,7 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 对 `data_operation/read` 使用 DDL 与脱敏 SampleValue 的双路向量召回；默认 Catalog 只建立 DDL 索引，RAG 只提供 Schema 证据，不执行 SQL。
 - SampleValue 仅接受外部明确提供的样例；敏感字段和值、低相似度候选会被过滤，歧义候选返回确认提示，Schema 证据无法安全放入上下文预算时接口返回 `413`。
 - 提供独立的 V8 Schema RAG 离线评测：从 BIRD Dev Gold SQL 提取基础表标签，对比 DDL-only、SampleValue-only 与 Fusion/RRF 的 Top-1/3/5/10 召回；评测不改变线上 RAG 或聊天链路。
+- 提供独立的 V9 BIRD Dev NL2SQL 端到端评测：Gold SQL 只由旁路只读执行器生成参考结果；预测 SQL 必须经现有 LangGraph 图执行，并从最终 `NL2SQLState` 读取结果，以执行结果等价而非 SQL 文本完全一致判定正确性。
 - `nl2sql` 使用 LangGraph 编排 `SchemaLinking → ContextPrepare → GenSQL → ValidateSQL → Execute → Reflection → Output`；GenSQL 和 Reflection 均复用现有 `LLMAdapter.complete(messages, tools=[])`，Reflection 的短原因会回传到下一次 GenSQL。
 - NL2SQL 复用会话 ContextManager，因此同一 `user_id + session_id` 的近期消息、摘要、`MEMORY.md`、Token 预算和用量记录都会进入图；主回答完成后才持久化本轮长期记忆。
 - NL2SQL 仅允许白名单表/列上的单条只读 `SELECT/WITH`，拒绝 `SELECT *` 与 `table.*`，但允许 `COUNT(*)` 等不返回全部字段的聚合；SQLGlot AST 校验、行数、列数、超时和反思次数均受限。默认未配置、不可用或未启用的业务数据库返回明确 `503`，不会使用聊天会话 SQLite。
@@ -144,6 +145,33 @@ Invoke-RestMethod -Method Post `
   --rebuild-index
 ```
 
+## V9 BIRD Dev NL2SQL 端到端评测
+
+V9 在不改变线上 API、ChatService 和默认 NL2SQL 链路的前提下，离线运行当前 LangGraph 图，并让 Gold SQL 与预测 SQL 在同一 `db_id` 对应的 SQLite 快照上分别通过只读 Executor 执行。Gold SQL、Gold Tables 和 Gold Result 不进入 Prompt、Schema Context、Reflection 输入或预测 State。
+
+正确性以执行结果等价为准：默认忽略行顺序但保留重复行次数，区分 `NULL` 与字符串 `"NULL"`，比较列数、空结果和截断状态，并以可配置的浮点绝对误差（默认 `1e-2`）比较数值。SQL 文本一致性只作为辅助诊断指标。
+
+报告输出到被 Git 忽略的 `artifacts/nl2sql-eval/`，包含 `cases.jsonl`、`summary.json` 和 `summary.csv`。汇总会分别统计 Schema Recall、首次执行成功率、首次/最终执行准确率、Reflection 修复率、澄清/拒绝/上限比例、耗时和模型调用次数。单元测试只使用 Fake LLM、Mock 和临时 SQLite，不调用在线模型、Embedding 或业务数据库。
+
+真实评测需要用户自行下载 BIRD，并显式配置主聊天 LLM 与 Qwen Embedding 所需的环境变量；本仓库未运行或声明 BIRD 全量真实分数。
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_nl2sql.py `
+  --dataset-root D:\data\bird `
+  --question-file D:\data\bird\dev.json `
+  --database-root D:\data\bird\dev_databases `
+  --index-path .\artifacts\nl2sql-eval\lancedb `
+  --output-dir .\artifacts\nl2sql-eval\reports `
+  --top-k 3 `
+  --rag-branch fusion_rrf `
+  --max-attempts 3 `
+  --max-reflections 2 `
+  --limit 20 `
+  --rebuild-index
+```
+
+`--rag-branch` 可选 `ddl_only`、`sample_value_only` 或默认的 `fusion_rrf`，用于离线分支对照；线上 SchemaLinking 默认融合行为不受影响。
+
 ## 目录说明
 
 ```text
@@ -153,6 +181,7 @@ app/
   memory/      上下文、摘要、Token 与长期记忆
   rag/         Schema RAG、向量检索与上下文证据
   rag_eval/    BIRD Schema RAG 离线评测
+  nl2sql_eval/ BIRD Dev NL2SQL 端到端评测
   services/    聊天请求编排
   storage/     会话持久化与 Schema 元数据目录
   tools/       业务工具
@@ -175,5 +204,6 @@ web/           简单前端页面
 - `docs/v7_langgraph-nl2sql-plan.md`：LangGraph 只读 NL2SQL 工作流设计与实施计划。
 - `docs/v7_langgraph-nl2sql-fix.md`：LangGraph NL2SQL 的字段白名单、上下文、数据库可用性与状态修复计划。
 - `docs/v8_rag-evaluation-plan.md`：Schema RAG BIRD 离线评测设计与实施计划。
+- `docs/v9_nl2sql-bird-evaluation-plan.md`：BIRD Dev LangGraph NL2SQL 端到端评测设计与实施计划。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。
