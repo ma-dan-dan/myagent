@@ -12,6 +12,8 @@ __pycache__/
 .myagent/
 data/chat.sqlite3
 data/rag_index/
+artifacts/rag-eval/
+data/bird/
 
 # Test and tooling caches
 .pytest_cache/

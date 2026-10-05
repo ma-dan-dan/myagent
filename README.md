@@ -10,6 +10,7 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - 通过 `ToolRegistry` 管理工具白名单；当前已接入 `search_schema` 工具。
 - 对 `data_operation/read` 使用 DDL 与脱敏 SampleValue 的双路向量召回；默认 Catalog 只建立 DDL 索引，RAG 只提供 Schema 证据，不执行 SQL。
 - SampleValue 仅接受外部明确提供的样例；敏感字段和值、低相似度候选会被过滤，歧义候选返回确认提示，Schema 证据无法安全放入上下文预算时接口返回 `413`。
+- 提供独立的 V8 Schema RAG 离线评测：从 BIRD Dev Gold SQL 提取基础表标签，对比 DDL-only、SampleValue-only 与 Fusion/RRF 的 Top-1/3/5/10 召回；评测不改变线上 RAG 或聊天链路。
 - `nl2sql` 使用 LangGraph 编排 `SchemaLinking → ContextPrepare → GenSQL → ValidateSQL → Execute → Reflection → Output`；GenSQL 和 Reflection 均复用现有 `LLMAdapter.complete(messages, tools=[])`，Reflection 的短原因会回传到下一次 GenSQL。
 - NL2SQL 复用会话 ContextManager，因此同一 `user_id + session_id` 的近期消息、摘要、`MEMORY.md`、Token 预算和用量记录都会进入图；主回答完成后才持久化本轮长期记忆。
 - NL2SQL 仅允许白名单表/列上的单条只读 `SELECT/WITH`，拒绝 `SELECT *` 与 `table.*`，但允许 `COUNT(*)` 等不返回全部字段的聚合；SQLGlot AST 校验、行数、列数、超时和反思次数均受限。默认未配置、不可用或未启用的业务数据库返回明确 `503`，不会使用聊天会话 SQLite。
@@ -119,6 +120,30 @@ Invoke-RestMethod -Method Post `
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
+## V8 Schema RAG 离线评测
+
+评测工具只用于离线验证 Schema RAG，不生成或执行 SQL。它从 BIRD Dev 的 Gold SQL 用 SQLGlot 提取基础表（排除 CTE/别名），再对 DDL-only、SampleValue-only、Fusion/RRF 分别计算：
+
+- `Recall@K`：召回到的 Gold Table 数 / Gold Table 总数；
+- `FullRecall@K`：Top-K 是否包含全部 Gold Tables；
+- `Precision@K`：召回表中属于 Gold Tables 的比例。
+
+`database_coverage` 只表示召回表占当前数据库全部表的比例，与 Gold Recall 分开报告。CLI 会输出 `cases.jsonl`、`summary.json` 和 `summary.csv`；索引、报告与 BIRD 数据应放在被 Git 忽略的 `artifacts/rag-eval/` 或仓库外目录。
+
+真实评测需要用户自行下载 BIRD，并显式提供 Qwen Embedding 所需的 `QWEN_API_KEY`。单元测试只使用 Fake Embedding、Fake Retriever 和临时 SQLite，不需要也不会调用在线模型。
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_rag.py `
+  --dataset-root D:\data\bird `
+  --question-file D:\data\bird\dev.json `
+  --database-root D:\data\bird\dev_databases `
+  --index-path .\artifacts\rag-eval\lancedb `
+  --output-dir .\artifacts\rag-eval\reports `
+  --top-k 1 3 5 10 `
+  --limit 20 `
+  --rebuild-index
+```
+
 ## 目录说明
 
 ```text
@@ -126,9 +151,12 @@ app/
   agent/       Agent Loop、LLM 适配器、工具注册表
   api/         FastAPI 路由
   memory/      上下文、摘要、Token 与长期记忆
+  rag/         Schema RAG、向量检索与上下文证据
+  rag_eval/    BIRD Schema RAG 离线评测
   services/    聊天请求编排
   storage/     会话持久化与 Schema 元数据目录
   tools/       业务工具
+scripts/       离线评测等命令行工具
 data/          Schema 元数据与本地运行数据库位置
 docs/          版本设计与实施文档
 tests/         单元测试与 API 测试
@@ -146,5 +174,6 @@ web/           简单前端页面
 - `docs/v6_rag-ddl-samplevalue-plan.md`：DDL + SampleValue RAG 设计。
 - `docs/v7_langgraph-nl2sql-plan.md`：LangGraph 只读 NL2SQL 工作流设计与实施计划。
 - `docs/v7_langgraph-nl2sql-fix.md`：LangGraph NL2SQL 的字段白名单、上下文、数据库可用性与状态修复计划。
+- `docs/v8_rag-evaluation-plan.md`：Schema RAG BIRD 离线评测设计与实施计划。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。

@@ -83,6 +83,19 @@ def test_retriever_fuses_two_sources_by_table_and_column(tmp_path):
     assert result.candidates[0].matched_columns == ["line_code"]
 
 
+def test_retriever_supports_source_selection_without_changing_default_fusion(tmp_path):
+    store = LanceVectorStore(tmp_path)
+    store.upsert(RagSourceType.DDL, [(ddl_document(), [1.0, 0.0])])
+    store.upsert(RagSourceType.SAMPLE_VALUE, [(sample_document(), [1.0, 0.0])])
+    retriever = SchemaRetriever(FakeEmbedding([1.0, 0.0]), store)
+
+    ddl_only = retriever.search("产量", "default", limit=3, sources=[RagSourceType.DDL])
+    default_fusion = retriever.search("产量", "default", limit=3)
+
+    assert ddl_only.candidates[0].matched_by == [RagSourceType.DDL]
+    assert set(default_fusion.candidates[0].matched_by) == {RagSourceType.DDL, RagSourceType.SAMPLE_VALUE}
+
+
 def test_context_packer_respects_token_budget_and_keeps_schema_evidence():
     class TokenManager:
         def estimate(self, messages):

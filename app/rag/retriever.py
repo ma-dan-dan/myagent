@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.rag.embedding import EmbeddingAdapter
+from collections.abc import Sequence
+
 from app.rag.models import RagSourceType, RetrievalResult, SchemaCandidate
 from app.rag.vector_store import LanceVectorStore
 
@@ -13,14 +15,31 @@ class SchemaRetriever:
         self.min_hit_score = min_hit_score
         self.ambiguity_margin = ambiguity_margin
 
-    def search(self, query: str, namespace: str, limit: int) -> RetrievalResult:
+    def search(
+        self,
+        query: str,
+        namespace: str,
+        limit: int,
+        sources: Sequence[RagSourceType] | None = None,
+    ) -> RetrievalResult:
         if not query.strip() or limit < 1:
             return RetrievalResult(status="empty")
-        vector = self.embedding.embed([query])[0]
-        hits = [
-            *self.vector_store.search(RagSourceType.DDL, vector, namespace, limit),
-            *self.vector_store.search(RagSourceType.SAMPLE_VALUE, vector, namespace, limit),
-        ]
+        return self.search_with_vector(self.embed_query(query), namespace, limit, sources=sources)
+
+    def embed_query(self, query: str) -> list[float]:
+        return self.embedding.embed([query])[0]
+
+    def search_with_vector(
+        self,
+        vector: list[float],
+        namespace: str,
+        limit: int,
+        sources: Sequence[RagSourceType] | None = None,
+    ) -> RetrievalResult:
+        if limit < 1:
+            return RetrievalResult(status="empty")
+        active_sources = tuple(sources) if sources is not None else (RagSourceType.DDL, RagSourceType.SAMPLE_VALUE)
+        hits = [hit for source in active_sources for hit in self.vector_store.search(source, vector, namespace, limit)]
         hits = [hit for hit in hits if hit.score >= self.min_hit_score]
         grouped: dict[str, dict] = {}
         for hit in hits:

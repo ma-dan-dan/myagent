@@ -16,6 +16,18 @@ class LanceVectorStore:
     def _has_table(self, name: str) -> bool:
         return name in self.db.list_tables().tables
 
+    def has_namespace(self, source_type: RagSourceType, namespace: str) -> bool:
+        name = self._TABLES[source_type]
+        if not self._has_table(name):
+            return False
+        return bool(
+            self.db.open_table(name)
+            .search()
+            .where(f"namespace = {self._quote_filter_value(namespace)}")
+            .limit(1)
+            .to_list()
+        )
+
     @staticmethod
     def _quote_filter_value(value: str) -> str:
         return "'" + value.replace("'", "''") + "'"
