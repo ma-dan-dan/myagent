@@ -1,5 +1,5 @@
+from app.nl2sql_eval.factory import required_namespaces_ready
 from app.rag.models import RagSourceType
-from scripts.evaluate_rag import build_parser, required_namespaces_ready
 
 
 class FakeVectorStore:
@@ -10,27 +10,7 @@ class FakeVectorStore:
         return (source_type, namespace) in self.namespaces
 
 
-def test_evaluation_cli_accepts_explicit_paths_and_benchmark_controls():
-    args = build_parser().parse_args(
-        [
-            "--question-file", "dev.json",
-            "--database-root", "dev_databases",
-            "--index-path", "artifacts/index",
-            "--output-dir", "artifacts/reports",
-            "--top-k", "1", "3", "5", "10",
-            "--limit", "2",
-            "--question-id", "q1",
-            "--rebuild-index",
-        ]
-    )
-
-    assert args.top_k == [1, 3, 5, 10]
-    assert args.limit == 2
-    assert args.question_id == ["q1"]
-    assert args.rebuild_index is True
-
-
-def test_rag_index_readiness_requires_every_requested_source_namespace():
+def test_factory_requires_every_source_namespace_for_index_reuse():
     namespace = "shop"
     ddl_only = FakeVectorStore({(RagSourceType.DDL, namespace)})
     sample_only = FakeVectorStore({(RagSourceType.SAMPLE_VALUE, namespace)})

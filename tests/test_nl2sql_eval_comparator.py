@@ -48,6 +48,17 @@ def test_comparator_distinguishes_null_from_string_and_supports_float_tolerance(
     assert null_mismatch.execution_accuracy is False
 
 
+def test_configured_float_tolerance_changes_execution_accuracy():
+    predicted = query_result([[1.05]])
+    gold = query_result([[1.0]])
+
+    strict = ResultComparator(float_abs_tolerance=0.01)
+    relaxed = ResultComparator(float_abs_tolerance=0.1)
+
+    assert strict.compare(predicted, gold).execution_accuracy is False
+    assert relaxed.compare(predicted, gold).execution_accuracy is True
+
+
 def test_comparator_handles_empty_results_columns_and_truncation_stably():
     comparator = ResultComparator()
 

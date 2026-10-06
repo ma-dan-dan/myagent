@@ -474,11 +474,11 @@ def test_default_nl2sql_wiring_uses_dedicated_temporary_sqlite_database(tmp_path
     assert response.json()["nl2sql_status"] == "ok"
     assert response.json()["query_result"]["columns"] == ["output_quantity"]
     assert response.json()["query_result"]["rows"] == [[10], [20]]
-    assert "LIMIT 100" in response.json()["sql"].upper()
+    assert response.json()["sql"] == "SELECT output_quantity FROM production_output"
     assert len(fake.calls) == 2
 
 
-def test_default_nl2sql_preserves_session_context_and_writes_memory_after_compaction(tmp_path, monkeypatch):
+def test_default_nl2sql_keeps_the_five_node_graph_separate_from_chat_context_maintenance(tmp_path, monkeypatch):
     class FakeSchemaLinkingService:
         def search(self, message):
             from app.rag.models import SchemaCandidate
@@ -502,8 +502,6 @@ def test_default_nl2sql_preserves_session_context_and_writes_memory_after_compac
             LLMResponse.message('{"decision":"pass","reason":"结果符合问题"}'),
             LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}'),
             LLMResponse.message('{"decision":"pass","reason":"结果符合问题"}'),
-            LLMResponse.message("摘要：用户持续查询产量。", usage=TokenUsage(requests=1, input_tokens=4, output_tokens=2, total_tokens=6)),
-            LLMResponse.message('[{"content":"用户持续关注产量数据。"}]', usage=TokenUsage(requests=1, input_tokens=3, output_tokens=2, total_tokens=5)),
             LLMResponse.message('{"status":"ok","sql":"SELECT output_quantity FROM production_output","tables":["production_output"],"parameters":{},"explanation":"查询产量"}'),
             LLMResponse.message('{"decision":"pass","reason":"结果符合问题"}'),
         ]
@@ -531,9 +529,9 @@ def test_default_nl2sql_preserves_session_context_and_writes_memory_after_compac
     third = client.post("/api/v1/chat", json={"user_id": "alice", "session_id": session_id, "message": "再查一次"})
 
     assert first.status_code == second.status_code == third.status_code == 200
-    assert "查询产量" in json.dumps(fake.calls[2], ensure_ascii=False)
-    assert third.json()["usage"]["current_turn"]["requests"] == 2
+    assert "查询产量" not in json.dumps(fake.calls[2], ensure_ascii=False)
+    assert third.json()["usage"]["current_turn"]["requests"] == 0
     memory_path = tmp_path / ".myagent" / "memory" / "chat" / "MEMORY.md"
-    assert "用户持续关注产量数据。" in memory_path.read_text(encoding="utf-8")
+    assert memory_path.exists() is False
     with sqlite3.connect(tmp_path / "chat.sqlite3") as connection:
-        assert {row[0] for row in connection.execute("SELECT operation FROM token_usages")} == {"chat", "summary", "memory"}
+        assert {row[0] for row in connection.execute("SELECT operation FROM token_usages")} == {"chat"}

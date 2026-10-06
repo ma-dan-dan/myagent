@@ -6,7 +6,6 @@ from app.agent.adapter import LLMAdapter, LLMResponse, ToolSpec
 from app.memory.token_manager import TokenManager
 from app.nl2sql.executor import SQLExecutor
 from app.nl2sql.graph import NL2SQLGraphService
-from app.nl2sql.validator import SQLValidator
 from app.nl2sql_eval.models import PredictionInput
 from app.rag.context_packer import ContextPacker
 from app.rag.embedding import EmbeddingAdapter
@@ -66,7 +65,7 @@ class BirdGraphFactory:
         return NL2SQLGraphService(
             schema_service,
             counted_llm,
-            SQLValidator(dialect=self.dialect, max_rows=self.max_rows, max_sql_length=self.max_sql_length),
+            None,
             executor,
             dialect=self.dialect,
             max_attempts=self.max_attempts,
@@ -94,7 +93,16 @@ class BirdGraphFactory:
             limit=self.top_k,
             sources=self.sources,
         )
-        if not self.rebuild_index and self.store.has_namespace(RagSourceType.DDL, prediction_input.db_id):
+        if not self.rebuild_index and required_namespaces_ready(self.store, prediction_input.db_id, self.sources):
             service._indexed = True
         self._schema_services[prediction_input.db_id] = service
         return service
+
+
+def required_namespaces_ready(
+    store: LanceVectorStore,
+    namespace: str,
+    sources: tuple[RagSourceType, ...] | None = None,
+) -> bool:
+    required_sources = sources or (RagSourceType.DDL, RagSourceType.SAMPLE_VALUE)
+    return all(store.has_namespace(source, namespace) for source in required_sources)

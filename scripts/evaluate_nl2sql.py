@@ -17,10 +17,14 @@ from app.nl2sql_eval.factory import BirdGraphFactory
 from app.nl2sql_eval.models import BirdEvaluationCase, WorkflowCaseResult
 from app.nl2sql_eval.reference_executor import GoldReferenceExecutor
 from app.nl2sql_eval.report import write_workflow_reports
+from app.nl2sql_eval.result_comparator import ResultComparator
 from app.rag.embedding import QwenEmbeddingAdapter
 from app.rag.models import RagSourceType
 from app.rag_eval.bird_loader import load_bird_cases
 from app.rag_eval.gold_tables import extract_gold_tables
+
+
+WORKFLOW_DESCRIPTION = "SchemaLinking -> GenSQL -> Execute -> Reflection -> Output"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,24 +73,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, Path]:
         rebuild_index=args.rebuild_index,
         sources=_sources_for_branch(args.rag_branch),
     )
-    evaluator = NL2SQLWorkflowEvaluator(
-        graph_factory=graph_factory,
-        executor_factory=lambda case: ReadOnlySQLiteExecutor(
-            case.database_path,
-            runtime.max_rows,
-            runtime.max_columns,
-            runtime.query_timeout_seconds,
-        ),
-        reference_executor_factory=lambda case: GoldReferenceExecutor(
-            ReadOnlySQLiteExecutor(
-                case.database_path,
-                runtime.max_rows,
-                runtime.max_columns,
-                runtime.query_timeout_seconds,
-            )
-        ),
-        rag_branch=args.rag_branch,
-    )
+    evaluator = build_workflow_evaluator(args, runtime=runtime, graph_factory=graph_factory)
     results: list[WorkflowCaseResult] = []
     for bird_case in cases:
         try:
@@ -130,13 +117,40 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, Path]:
         "max_attempts": args.max_attempts,
         "max_reflections": args.max_reflections,
         "float_abs_tolerance": args.float_abs_tolerance,
-        "workflow": "SchemaLinking -> ContextPrepare -> GenSQL -> ValidateSQL -> Execute -> Reflection -> Output",
+        "workflow": WORKFLOW_DESCRIPTION,
     }
     return write_workflow_reports(
         results,
         output_dir=args.output_dir,
         metadata=metadata,
         float_abs_tolerance=args.float_abs_tolerance,
+    )
+
+
+def build_workflow_evaluator(
+    args: argparse.Namespace,
+    *,
+    runtime: object,
+    graph_factory: BirdGraphFactory,
+) -> NL2SQLWorkflowEvaluator:
+    return NL2SQLWorkflowEvaluator(
+        graph_factory=graph_factory,
+        executor_factory=lambda case: ReadOnlySQLiteExecutor(
+            case.database_path,
+            runtime.max_rows,
+            runtime.max_columns,
+            runtime.query_timeout_seconds,
+        ),
+        reference_executor_factory=lambda case: GoldReferenceExecutor(
+            ReadOnlySQLiteExecutor(
+                case.database_path,
+                runtime.max_rows,
+                runtime.max_columns,
+                runtime.query_timeout_seconds,
+            )
+        ),
+        comparator=ResultComparator(float_abs_tolerance=args.float_abs_tolerance),
+        rag_branch=args.rag_branch,
     )
 
 

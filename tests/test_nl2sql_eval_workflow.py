@@ -160,7 +160,7 @@ def test_workflow_records_reject_and_stops_after_the_attempt_limit(tmp_path):
     assert limited.attempts == 1
 
 
-def test_workflow_does_not_count_a_later_execution_as_initial_when_validation_regenerates(tmp_path):
+def test_workflow_counts_executor_failure_as_valid_initial_generation(tmp_path):
     case = make_case_and_database(tmp_path)
     llm = FakeLLM(
         [
@@ -178,7 +178,7 @@ def test_workflow_does_not_count_a_later_execution_as_initial_when_validation_re
         ),
     ).evaluate_case(case)
 
-    assert result.initial_generation_valid is False
+    assert result.initial_generation_valid is True
     assert result.initial_execution_success is False
     assert result.initial_execution_accuracy is False
     assert result.final_execution_accuracy is True

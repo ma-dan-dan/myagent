@@ -105,8 +105,8 @@
 
   <rect x="1110" y="590" width="410" height="140" class="box rag"/>
   <text x="1315" y="625" text-anchor="middle" class="label">nl2sql · LangGraph</text>
-  <text x="1315" y="651" text-anchor="middle" class="small">SchemaLinking → ContextPrepare</text>
-  <text x="1315" y="676" text-anchor="middle" class="small">GenSQL ↔ Reflection → 安全输出</text>
+  <text x="1315" y="651" text-anchor="middle" class="small">SchemaLinking → GenSQL → Execute</text>
+  <text x="1315" y="676" text-anchor="middle" class="small">Reflection ↔ GenSQL → Output</text>
   <text x="1315" y="704" text-anchor="middle" class="tiny">独立只读 SQLite · 不使用 Chat SQLite</text>
 
   <path d="M800 525 L285 590" class="line"/>
@@ -182,45 +182,35 @@
   <text x="1005" y="990" text-anchor="middle" class="small">DDL / SampleValue</text>
   <text x="1005" y="1010" text-anchor="middle" class="tiny">namespace 同步与旧文档清理</text>
 
-  <text x="70" y="1090" class="section">V7 NL2SQL LANGGRAPH（已实现）</text>
+  <text x="70" y="1090" class="section">V7 / V9 NL2SQL LANGGRAPH（已实现）</text>
   <line x1="70" y1="1102" x2="1520" y2="1102" class="divider"/>
 
-  <rect x="70" y="1130" width="175" height="76" class="box rag"/>
-  <text x="157" y="1161" text-anchor="middle" class="label">SchemaLinking</text>
-  <text x="157" y="1187" text-anchor="middle" class="tiny">候选表与 Schema evidence</text>
+  <rect x="70" y="1130" width="200" height="76" class="box rag"/>
+  <text x="170" y="1161" text-anchor="middle" class="label">SchemaLinking</text>
+  <text x="170" y="1187" text-anchor="middle" class="tiny">候选表与 Schema evidence</text>
 
-  <rect x="275" y="1130" width="175" height="76" class="box storage"/>
-  <text x="362" y="1161" text-anchor="middle" class="label">ContextPrepare</text>
-  <text x="362" y="1187" text-anchor="middle" class="tiny">历史 / 摘要 / MEMORY / Budget</text>
+  <rect x="360" y="1130" width="200" height="76" class="box rag"/>
+  <text x="460" y="1161" text-anchor="middle" class="label">GenSQL</text>
+  <text x="460" y="1187" text-anchor="middle" class="tiny">LLMAdapter.complete(tools=[])</text>
 
-  <rect x="480" y="1130" width="175" height="76" class="box rag"/>
-  <text x="567" y="1161" text-anchor="middle" class="label">GenSQL</text>
-  <text x="567" y="1187" text-anchor="middle" class="tiny">LLMAdapter.complete(tools=[])</text>
+  <rect x="650" y="1130" width="200" height="76" class="box rag"/>
+  <text x="750" y="1161" text-anchor="middle" class="label">Execute</text>
+  <text x="750" y="1187" text-anchor="middle" class="tiny">只读 Executor · 专用业务 SQLite</text>
 
-  <rect x="685" y="1130" width="175" height="76" class="box rag"/>
-  <text x="772" y="1161" text-anchor="middle" class="label">ValidateSQL</text>
-  <text x="772" y="1187" text-anchor="middle" class="tiny">SQLGlot · 表列白名单 · 无 *</text>
+  <rect x="940" y="1130" width="200" height="76" class="box rag"/>
+  <text x="1040" y="1161" text-anchor="middle" class="label">Reflection</text>
+  <text x="1040" y="1187" text-anchor="middle" class="tiny">原因回流 · 最多 2 次</text>
 
-  <rect x="890" y="1130" width="175" height="76" class="box rag"/>
-  <text x="977" y="1161" text-anchor="middle" class="label">Execute</text>
-  <text x="977" y="1187" text-anchor="middle" class="tiny">只读 Executor · 专用业务 SQLite</text>
+  <rect x="1230" y="1130" width="200" height="76" class="box current"/>
+  <text x="1330" y="1161" text-anchor="middle" class="label">Output</text>
+  <text x="1330" y="1187" text-anchor="middle" class="tiny">结果 / SQL / usage</text>
 
-  <rect x="1095" y="1130" width="175" height="76" class="box rag"/>
-  <text x="1182" y="1161" text-anchor="middle" class="label">Reflection</text>
-  <text x="1182" y="1187" text-anchor="middle" class="tiny">原因回流 · 最多 2 次</text>
-
-  <rect x="1300" y="1130" width="175" height="76" class="box current"/>
-  <text x="1387" y="1161" text-anchor="middle" class="label">Output</text>
-  <text x="1387" y="1187" text-anchor="middle" class="tiny">结果 / SQL / usage / Memory 收尾</text>
-
-  <path d="M245 1168 L275 1168" class="ragLine"/>
-  <path d="M450 1168 L480 1168" class="ragLine"/>
-  <path d="M655 1168 L685 1168" class="ragLine"/>
-  <path d="M860 1168 L890 1168" class="ragLine"/>
-  <path d="M1065 1168 L1095 1168" class="ragLine"/>
-  <path d="M1270 1168 L1300 1168" class="ragLine"/>
-  <path d="M1182 1206 C1182 1260 567 1260 567 1206" class="ragLine"/>
-  <text x="875" y="1251" text-anchor="middle" class="tiny">regenerate 时回到 GenSQL（最多 3 次生成）；安全校验失败 → 422，预算失败 → 413，未启用或业务库不可用 → 503</text>
+  <path d="M270 1168 L360 1168" class="ragLine"/>
+  <path d="M560 1168 L650 1168" class="ragLine"/>
+  <path d="M850 1168 L940 1168" class="ragLine"/>
+  <path d="M1140 1168 L1230 1168" class="ragLine"/>
+  <path d="M1040 1206 C1040 1260 460 1260 460 1206" class="ragLine"/>
+  <text x="875" y="1251" text-anchor="middle" class="tiny">regenerate 时回到 GenSQL（最多 3 次生成）；只读 Executor 拒绝写操作，未启用或业务库不可用 → 503</text>
 
   <rect x="70" y="1300" width="1405" height="42" rx="12" fill="#e2e8f0" stroke="#cbd5e1"/>
   <text x="772" y="1327" text-anchor="middle" class="small">app/config.py：统一管理 Provider、模型、Base URL、API Key 环境变量、NL2SQL 开关与运行参数</text>

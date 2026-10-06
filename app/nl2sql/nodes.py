@@ -99,10 +99,10 @@ def validate_sql_node(state: dict[str, Any], validator: SQLValidator) -> dict[st
 def execute_sql_node(state: dict[str, Any], executor: SQLExecutor) -> dict[str, Any]:
     current = NL2SQLState.model_validate(state)
     update = current.model_dump()
-    if not current.validation or not current.validation.ok or not current.validation.normalized_sql or not current.sql_draft:
+    if not current.sql_draft or current.sql_draft.status != "ok" or not current.sql_draft.sql:
         return update
     try:
-        result = executor.execute(current.validation.normalized_sql, current.sql_draft.parameters)
+        result = executor.execute(current.sql_draft.sql, current.sql_draft.parameters)
     except SQLExecutorUnavailable:
         raise
     except SQLExecutionError as exc:

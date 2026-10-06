@@ -12,9 +12,9 @@ MyAgent 是一个用于学习 Agentic Chat 架构的 Python 项目。当前项�
 - SampleValue 仅接受外部明确提供的样例；敏感字段和值、低相似度候选会被过滤，歧义候选返回确认提示，Schema 证据无法安全放入上下文预算时接口返回 `413`。
 - 提供独立的 V8 Schema RAG 离线评测：从 BIRD Dev Gold SQL 提取基础表标签，对比 DDL-only、SampleValue-only 与 Fusion/RRF 的 Top-1/3/5/10 召回；评测不改变线上 RAG 或聊天链路。
 - 提供独立的 V9 BIRD Dev NL2SQL 端到端评测：Gold SQL 只由旁路只读执行器生成参考结果；预测 SQL 必须经现有 LangGraph 图执行，并从最终 `NL2SQLState` 读取结果，以执行结果等价而非 SQL 文本完全一致判定正确性。
-- `nl2sql` 使用 LangGraph 编排 `SchemaLinking → ContextPrepare → GenSQL → ValidateSQL → Execute → Reflection → Output`；GenSQL 和 Reflection 均复用现有 `LLMAdapter.complete(messages, tools=[])`，Reflection 的短原因会回传到下一次 GenSQL。
-- NL2SQL 复用会话 ContextManager，因此同一 `user_id + session_id` 的近期消息、摘要、`MEMORY.md`、Token 预算和用量记录都会进入图；主回答完成后才持久化本轮长期记忆。
-- NL2SQL 仅允许白名单表/列上的单条只读 `SELECT/WITH`，拒绝 `SELECT *` 与 `table.*`，但允许 `COUNT(*)` 等不返回全部字段的聚合；SQLGlot AST 校验、行数、列数、超时和反思次数均受限。默认未配置、不可用或未启用的业务数据库返回明确 `503`，不会使用聊天会话 SQLite。
+- `nl2sql` 使用 LangGraph 编排 `SchemaLinking → GenSQL → Execute → Reflection → Output`；GenSQL 和 Reflection 均复用现有 `LLMAdapter.complete(messages, tools=[])`，Reflection 的短原因会回传到下一次 GenSQL。
+- Agentic Chat 复用会话 ContextManager，因此同一 `user_id + session_id` 的近期消息、摘要、`MEMORY.md`、Token 预算和用量记录会用于聊天链路；主回答完成后才持久化本轮长期记忆。
+- NL2SQL 通过独立只读 SQLite Executor 执行单条 `SELECT/WITH`，由只读连接、SQLite authorizer、超时、最大行数/列数和写操作拒绝共同限制执行边界。默认未配置、不可用或未启用的业务数据库返回明确 `503`，不会使用聊天会话 SQLite。
 - NL2SQL 自动化测试使用 Fake LLM、Fake Executor 或临时 SQLite 文件，不调用真实模型、Embedding 或业务数据库。
 - 使用 LiteLLM 接入 OpenAI、DeepSeek、Qwen 三类模型，并保留可注入的 Fake LLM 测试方式。
 - 使用滑动窗口、会话摘要、Token 估算和 `MEMORY.md` 管理会话上下文与长期项目记忆。
@@ -51,7 +51,7 @@ Fake 仅用于测试与评测链路验证，评测报告标记为 `fixture`，�
 
 ![MyAgent 当前架构：意图路由、Agentic Chat、DDL 与 SampleValue RAG、会话记忆和 LangGraph NL2SQL](docs/images/myagent-architecture.svg)
 
-图从上到下展示请求入口、意图路由、三条业务分支和共享基础设施；下方分别展开 V6 RAG 与 V7 NL2SQL 图。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；`nl2sql` 在 SchemaLinking 后先执行 ContextPrepare，并只通过校验后的专用只读 SQLExecutor 访问业务库。
+图从上到下展示请求入口、意图路由、三条业务分支和共享基础设施；下方分别展开 V6 RAG 与 V7 NL2SQL 图。`data_operation/read` 通过 SchemaLinkingService 完成 DDL/SampleValue 双路召回、RRF 融合和上下文打包，再以 `tools=[]` 交由 ChatAgent 一次回答；`nl2sql` 使用 SchemaLinking、GenSQL、Execute、Reflection、Output 五节点图，并只通过专用只读 SQLExecutor 访问业务库。
 
 ## 配置位置
 
@@ -149,6 +149,8 @@ Invoke-RestMethod -Method Post `
 
 V9 在不改变线上 API、ChatService 和默认 NL2SQL 链路的前提下，离线运行当前 LangGraph 图，并让 Gold SQL 与预测 SQL 在同一 `db_id` 对应的 SQLite 快照上分别通过只读 Executor 执行。Gold SQL、Gold Tables 和 Gold Result 不进入 Prompt、Schema Context、Reflection 输入或预测 State。
 
+预测图严格为 `SchemaLinking → GenSQL → Execute → Reflection → Output`：首次执行、最终执行和 Reflection 修复会分别记录；`regenerate` 受最大生成/反思次数限制，`pass`、`clarify`、`reject` 都进入 Output。评测测试使用 Fake LLM、Mock 和临时 SQLite，不调用真实模型、Embedding 或业务数据库。
+
 正确性以执行结果等价为准：默认忽略行顺序但保留重复行次数，区分 `NULL` 与字符串 `"NULL"`，比较列数、空结果和截断状态，并以可配置的浮点绝对误差（默认 `1e-2`）比较数值。SQL 文本一致性只作为辅助诊断指标。
 
 报告输出到被 Git 忽略的 `artifacts/nl2sql-eval/`，包含 `cases.jsonl`、`summary.json` 和 `summary.csv`。汇总会分别统计 Schema Recall、首次执行成功率、首次/最终执行准确率、Reflection 修复率、澄清/拒绝/上限比例、耗时和模型调用次数。单元测试只使用 Fake LLM、Mock 和临时 SQLite，不调用在线模型、Embedding 或业务数据库。
@@ -205,5 +207,6 @@ web/           简单前端页面
 - `docs/v7_langgraph-nl2sql-fix.md`：LangGraph NL2SQL 的字段白名单、上下文、数据库可用性与状态修复计划。
 - `docs/v8_rag-evaluation-plan.md`：Schema RAG BIRD 离线评测设计与实施计划。
 - `docs/v9_nl2sql-bird-evaluation-plan.md`：BIRD Dev LangGraph NL2SQL 端到端评测设计与实施计划。
+- `docs/v9_nl2sql-bird-evaluation-fix.md`：V9 五节点工作流、浮点容差和双索引完整性修复计划。
 
 每次完成一个版本的实现后，同步更新本 README，并将代码、测试和文档一起提交到 GitHub。

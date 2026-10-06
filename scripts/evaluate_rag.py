@@ -50,7 +50,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     for case in cases:
         records_by_db.setdefault(case.db_id, catalog.load(case.db_id, case.database_path))
     for db_id, records in records_by_db.items():
-        if args.rebuild_index or not store.has_namespace(RagSourceType.DDL, db_id):
+        if args.rebuild_index or not required_namespaces_ready(store, db_id):
             indexer.index(records)
     retriever = SchemaRetriever(embedding, store)
     evaluator = SchemaRagEvaluator(retriever)
@@ -85,6 +85,15 @@ def main() -> int:
     paths = run(args)
     print("\n".join(str(path) for path in paths))
     return 0
+
+
+def required_namespaces_ready(
+    store: LanceVectorStore,
+    namespace: str,
+    sources: tuple[RagSourceType, ...] | None = None,
+) -> bool:
+    required_sources = sources or (RagSourceType.DDL, RagSourceType.SAMPLE_VALUE)
+    return all(store.has_namespace(source, namespace) for source in required_sources)
 
 
 if __name__ == "__main__":
